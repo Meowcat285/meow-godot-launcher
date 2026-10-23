@@ -1,0 +1,204 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:MeowGodotLauncher.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="1000" d:DesignHeight="640"
+        x:Class="MeowGodotLauncher.Views.MainWindow"
+        x:DataType="vm:MainViewModel"
+        Icon="/Assets/icon.ico"
+        Width="1000" Height="640" MinWidth="720" MinHeight="460"
+        WindowStartupLocation="CenterScreen"
+        Title="Meow Godot Launcher">
+
+    <DockPanel>
+        <!-- Status bar -->
+        <Border DockPanel.Dock="Bottom" Padding="12,8" BorderThickness="0,1,0,0"
+                BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
+            <Grid ColumnDefinitions="*,Auto,Auto">
+                <TextBlock Grid.Column="0" Text="{Binding StatusText}" VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding StatusText}" />
+                <ProgressBar Grid.Column="1" Width="220" Margin="12,0" VerticalAlignment="Center"
+                             IsVisible="{Binding IsBusy}" Value="{Binding ProgressValue}"
+                             IsIndeterminate="{Binding IsProgressIndeterminate}" />
+                <Button Grid.Column="2" Content="Cancel" Command="{Binding CancelCommand}" IsVisible="{Binding IsBusy}" />
+            </Grid>
+        </Border>
+
+        <TabControl Padding="0">
+            <TabItem Header="Builds">
+                <DockPanel>
+                    <!-- Update banner -->
+                    <Border DockPanel.Dock="Top" IsVisible="{Binding HasUpdate}" Margin="12,8,12,0" Padding="12,8"
+                            CornerRadius="6" Background="{DynamicResource SystemAccentColor}">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Text="{Binding UpdateText}" Foreground="White" VerticalAlignment="Center" FontWeight="SemiBold" />
+                            <Button Grid.Column="1" Content="Update now" Command="{Binding UpdateToLatestCommand}" IsEnabled="{Binding IsIdle}" />
+                        </Grid>
+                    </Border>
+
+                    <Border DockPanel.Dock="Top" IsVisible="{Binding !IsHostSupported}" Margin="12,8,12,0" Padding="12,8"
+                            CornerRadius="6" Background="#B04040">
+                        <TextBlock Foreground="White" TextWrapping="Wrap"
+                                   Text="The fork doesn't publish editor builds for this platform. You can still download export templates." />
+                    </Border>
+
+                    <Grid ColumnDefinitions="300,*" Margin="12">
+                        <!-- Release list -->
+                        <DockPanel Grid.Column="0" Margin="0,0,12,0">
+                            <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="0,0,0,8">
+                                <StackPanel>
+                                    <TextBlock Text="Releases" FontSize="18" FontWeight="SemiBold" />
+                                    <TextBlock Classes="muted" FontSize="12" Text="{Binding RepositoryText}" />
+                                </StackPanel>
+                                <Button Grid.Column="1" Content="Refresh" Command="{Binding RefreshCommand}"
+                                        IsEnabled="{Binding IsIdle}" VerticalAlignment="Center" />
+                            </Grid>
+                            <ListBox ItemsSource="{Binding Releases}" SelectedItem="{Binding SelectedRelease}">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:ReleaseItemViewModel">
+                                        <StackPanel Margin="0,2">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="{Binding Tag}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                                <Border Classes="badge" Background="#478CBF" IsVisible="{Binding IsLatest}">
+                                                    <TextBlock Text="latest" />
+                                                </Border>
+                                                <Border Classes="badge" Background="#3C8A4A" IsVisible="{Binding IsInstalled}">
+                                                    <TextBlock Text="installed" />
+                                                </Border>
+                                            </StackPanel>
+                                            <TextBlock Classes="muted" FontSize="12">
+                                                <Run Text="{Binding PublishedText}" />
+                                                <Run Text="·" />
+                                                <Run Text="{Binding ShortCommit}" />
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </DockPanel>
+
+                        <!-- Details -->
+                        <Border Grid.Column="1" CornerRadius="8" Padding="16"
+                                Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}">
+                            <Panel>
+                                <TextBlock IsVisible="{Binding !HasSelection}" Classes="muted"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                                           Text="Select a release." />
+                                <Panel IsVisible="{Binding HasSelection}">
+                                <DockPanel DataContext="{Binding SelectedRelease}" x:DataType="vm:ReleaseItemViewModel">
+                                    <StackPanel DockPanel.Dock="Top" Spacing="4">
+                                        <TextBlock Text="{Binding Tag}" FontSize="24" FontWeight="SemiBold" />
+                                        <TextBlock Classes="muted">
+                                            <Run Text="Published" />
+                                            <Run Text="{Binding PublishedText}" />
+                                            <Run Text="· commit" />
+                                            <Run Text="{Binding ShortCommit}" />
+                                        </TextBlock>
+                                        <TextBlock Text="{Binding InstalledText}" />
+                                        <TextBlock Classes="muted" Text="Published without delta patches, so installing it downloads the full build."
+                                                   IsVisible="{Binding ShowNoDeltaNote}" TextWrapping="Wrap" />
+                                        <TextBlock Text="{Binding PlanText}" TextWrapping="Wrap" Margin="0,4,0,0"
+                                                   IsVisible="{Binding PlanText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                    </StackPanel>
+
+                                    <WrapPanel DockPanel.Dock="Top" Margin="0,12" Orientation="Horizontal"
+                                               IsEnabled="{Binding $parent[Window].((vm:MainViewModel)DataContext).IsIdle}">
+                                        <WrapPanel.Styles>
+                                            <Style Selector="Button">
+                                                <Setter Property="Margin" Value="0,0,8,8" />
+                                            </Style>
+                                        </WrapPanel.Styles>
+                                        <Button Classes="accent" Content="Launch" IsVisible="{Binding HasEditor}"
+                                                Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).LaunchCommand}" />
+                                        <Button Classes="accent" Content="Install" IsVisible="{Binding CanInstallEditor}"
+                                                Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).InstallCommand}" />
+                                        <Button Content="Download export templates" IsVisible="{Binding CanInstallTemplates}"
+                                                Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).InstallTemplatesCommand}" />
+                                        <Button Content="Copy templates to Godot" IsVisible="{Binding HasTemplates}"
+                                                ToolTip.Tip="Install this build's export templates in Godot's export templates folder."
+                                                Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).SyncTemplatesCommand}" />
+                                        <Button Content="Open folder" IsVisible="{Binding IsInstalled}"
+                                                Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).OpenFolderCommand}" />
+                                        <Button Content="Release page"
+                                                Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).OpenReleasePageCommand}" />
+                                        <Button Content="Remove" IsVisible="{Binding IsInstalled}"
+                                                Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).RemoveCommand}" />
+                                    </WrapPanel>
+
+                                    <TextBlock DockPanel.Dock="Top" Text="Release notes" FontWeight="SemiBold" Margin="0,0,0,4" />
+                                    <ScrollViewer>
+                                        <SelectableTextBlock Text="{Binding Notes}" TextWrapping="Wrap" />
+                                    </ScrollViewer>
+                                </DockPanel>
+                                </Panel>
+                            </Panel>
+                        </Border>
+                    </Grid>
+                </DockPanel>
+            </TabItem>
+
+            <TabItem Header="Settings">
+                <ScrollViewer>
+                    <StackPanel Margin="16" Spacing="12" MaxWidth="640" HorizontalAlignment="Left" DataContext="{Binding Settings}"
+                                x:DataType="vm:SettingsViewModel">
+                        <TextBlock Text="Releases" FontSize="18" FontWeight="SemiBold" />
+                        <Grid ColumnDefinitions="*,12,*">
+                            <StackPanel Grid.Column="0" Spacing="4">
+                                <TextBlock Text="GitHub owner" />
+                                <TextBox Text="{Binding Owner}" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="2" Spacing="4">
+                                <TextBlock Text="Repository" />
+                                <TextBox Text="{Binding Repository}" />
+                            </StackPanel>
+                        </Grid>
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="GitHub token (optional)" />
+                            <TextBox Text="{Binding GitHubToken}" PasswordChar="•" />
+                            <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap"
+                                       Text="Only needed if you hit GitHub's limit of 60 API requests per hour. A token without any scopes is enough for public repositories." />
+                        </StackPanel>
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="Releases to show" />
+                            <NumericUpDown Value="{Binding MaxReleases}" Minimum="1" Maximum="100" Increment="10" FormatString="0" Width="160" HorizontalAlignment="Left" />
+                        </StackPanel>
+
+                        <TextBlock Text="Installs" FontSize="18" FontWeight="SemiBold" Margin="0,8,0,0" />
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="Library folder" />
+                            <TextBox Text="{Binding LibraryPath}" />
+                            <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap">
+                                <Run Text="Leave empty to use" />
+                                <Run Text="{Binding DefaultLibraryPath}" />
+                            </TextBlock>
+                        </StackPanel>
+                        <CheckBox IsChecked="{Binding UseDeltaUpdates}">
+                            <TextBlock TextWrapping="Wrap" Text="Use delta updates when an older build is installed (downloads only what changed)" />
+                        </CheckBox>
+                        <CheckBox IsChecked="{Binding RemoveOldBuildsAfterUpdate}" Content="Remove the old build after a delta update" />
+                        <CheckBox IsChecked="{Binding InstallExportTemplates}" Content="Also download export templates when installing a build" />
+                        <CheckBox IsChecked="{Binding SyncTemplatesOnLaunch}">
+                            <TextBlock TextWrapping="Wrap">
+                                <Run Text="Copy a build's export templates to Godot when launching it" />
+                                <LineBreak />
+                                <Run Text="{Binding GodotTemplatesPath}" FontSize="12" />
+                            </TextBlock>
+                        </CheckBox>
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="Editor arguments" />
+                            <TextBox Text="{Binding LaunchArguments}" />
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
+                            <Button Classes="accent" Content="Save"
+                                    Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).SaveSettingsCommand}" />
+                            <Button Content="Revert"
+                                    Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).ResetSettingsCommand}" />
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+        </TabControl>
+    </DockPanel>
+</Window>
