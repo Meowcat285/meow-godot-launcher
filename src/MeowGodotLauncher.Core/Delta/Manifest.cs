@@ -118,6 +118,14 @@ public static class DeltaOps
     public const string Patch = "patch";
     /// <summary>Decompress <see cref="DeltaOperation.Entry"/> as a regular zstd stream.</summary>
     public const string Add = "add";
+    /// <summary>
+    /// Rebuild a zip archive from the <see cref="DeltaOperation.Entries"/> operations, applied to the entries of the
+    /// <see cref="DeltaOperation.Source"/> archive. The result isn't byte-identical to the original, so only its
+    /// entries are verified.
+    /// </summary>
+    public const string Archive = "archive";
+    /// <summary>A folder entry of an archive.</summary>
+    public const string Dir = "dir";
 }
 
 public sealed class DeltaOperation
@@ -148,4 +156,12 @@ public sealed class DeltaOperation
     /// <summary>Name of the archive entry holding the data, for <see cref="DeltaOps.Patch"/> and <see cref="DeltaOps.Add"/>.</summary>
     [JsonPropertyName("entry")]
     public string? Entry { get; set; }
+
+    /// <summary>For <see cref="DeltaOps.Archive"/>, the operations producing each entry, with entry names as paths.</summary>
+    [JsonPropertyName("entries")]
+    public List<DeltaOperation>? Entries { get; set; }
+
+    /// <summary>For archive entries, whether to deflate the entry rather than store it.</summary>
+    [JsonPropertyName("compressed")]
+    public bool Compressed { get; set; }
 }

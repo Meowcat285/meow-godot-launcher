@@ -33,6 +33,19 @@ write(old / "pkg/old-name.dat", b"moved file" * 100); write(new / "pkg/new-name.
 write(old / "pkg/removed.txt", b"gone\n")
 write(new / "pkg/added.txt", b"brand new file\n" * 10)
 
+# A nested archive, which is patched entry by entry.
+import zipfile
+def nested(path, big, extra):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr(zipfile.ZipInfo("sub/"), b"")
+        zf.writestr("sub/big.bin", big, compress_type=zipfile.ZIP_DEFLATED)
+        zf.writestr("stored.txt", b"stored as is\n" * 50, compress_type=zipfile.ZIP_STORED)
+        for name, data in extra.items():
+            zf.writestr(name, data, compress_type=zipfile.ZIP_DEFLATED)
+nested(old / "pkg/templates.zip", old_exe, {})
+nested(new / "pkg/templates.zip", new_exe, {"sub/new.txt": b"added inside the archive\n"})
+
 def scan(root):
     files = {}
     for p in sorted(root.rglob("*")):

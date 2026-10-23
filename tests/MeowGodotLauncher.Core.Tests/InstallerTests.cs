@@ -5,6 +5,8 @@ using MeowGodotLauncher.Core.GitHub;
 using MeowGodotLauncher.Core.Library;
 using MeowGodotLauncher.Core.Util;
 
+using static MeowGodotLauncher.Core.Tests.TestUtil;
+
 namespace MeowGodotLauncher.Core.Tests;
 
 /// <summary>Runs the installer against a fake GitHub serving the fixtures as two releases, 1.0 and 1.1.</summary>
@@ -13,8 +15,6 @@ public sealed class InstallerTests : IDisposable
     private const string Package = PackageKinds.EditorLinuxX64;
     private const string AssetName = "Godot_v4.8.beta.mono_linux_x86_64.zip";
     private const string DeltaName = "editor-linux-x86_64.from-1.0.mgdelta";
-
-    private static string Fixture(string name) => Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
 
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "mgl-tests-" + Guid.NewGuid().ToString("N"));
     private readonly FakeGitHub _github = new();
@@ -69,10 +69,6 @@ public sealed class InstallerTests : IDisposable
 
     private static ReleaseInfo Release(string tag, string published, params ReleaseAsset[] assets) =>
         new() { Tag = tag, PublishedAt = DateTimeOffset.Parse(published), Assets = [.. assets] };
-
-    private static Dictionary<string, string> Snapshot(string dir) =>
-        Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories)
-            .ToDictionary(f => Path.GetRelativePath(dir, f).Replace('\\', '/'), FileUtil.Sha256);
 
     private Dictionary<string, string> ExpectedNew()
     {

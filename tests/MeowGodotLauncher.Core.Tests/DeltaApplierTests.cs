@@ -2,13 +2,13 @@ using MeowGodotLauncher.Core.Delta;
 using MeowGodotLauncher.Core.Library;
 using MeowGodotLauncher.Core.Util;
 
+using static MeowGodotLauncher.Core.Tests.TestUtil;
+
 namespace MeowGodotLauncher.Core.Tests;
 
 // The fixtures are produced by the real generator in the Godot fork, see `Fixtures/make_fixtures.py`.
 public sealed class DeltaApplierTests : IDisposable
 {
-    private static string Fixture(string name) => Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
-
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "mgl-tests-" + Guid.NewGuid().ToString("N"));
 
     public void Dispose() => FileUtil.DeleteDirectory(_dir);
@@ -22,10 +22,6 @@ public sealed class DeltaApplierTests : IDisposable
         return (old, expected);
     }
 
-    private static Dictionary<string, string> Snapshot(string dir) =>
-        Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories)
-            .ToDictionary(f => Path.GetRelativePath(dir, f).Replace('\\', '/'), FileUtil.Sha256);
-
     [Fact]
     public void AppliesDeltaGeneratedByTheFork()
     {
@@ -38,6 +34,8 @@ public sealed class DeltaApplierTests : IDisposable
         Assert.Contains(descriptor.Operations, o => o.Op == DeltaOps.Patch);
         Assert.Contains(descriptor.Operations, o => o.Op == DeltaOps.Add);
         Assert.Contains(descriptor.Operations, o => o.Op == DeltaOps.Copy && o.Source != o.Path);
+        var archive = Assert.Single(descriptor.Operations, o => o.Op == DeltaOps.Archive);
+        Assert.Contains(archive.Entries!, o => o.Op == DeltaOps.Patch);
         Assert.Equal(Snapshot(expected), Snapshot(target));
         if (!OperatingSystem.IsWindows())
         {
