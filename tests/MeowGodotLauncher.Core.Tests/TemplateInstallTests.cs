@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Text.Json;
 using MeowGodotLauncher.Core.Delta;
 using MeowGodotLauncher.Core.GitHub;
@@ -23,6 +24,7 @@ public sealed class TemplateInstallTests : IDisposable
     private readonly GitHubReleaseClient _client;
     private readonly Installer _installer;
     private readonly List<string> _log = [];
+    private readonly ReleaseManifest _manifest;
 
     public TemplateInstallTests()
     {
@@ -42,10 +44,12 @@ public sealed class TemplateInstallTests : IDisposable
                     Asset = AssetName,
                     AssetSize = new FileInfo(Fixture("templates-new.zip")).Length,
                     AssetSha256 = FileUtil.Sha256(Fixture("templates-new.zip")),
+                    Files = ManifestFiles(Fixture("templates-new.zip")),
                     Deltas = [new DeltaEntry { From = "1.0", Asset = DeltaName, Size = new FileInfo(Fixture(DeltaName)).Length, Sha256 = FileUtil.Sha256(Fixture(DeltaName)) }],
                 },
             ],
         };
+        _manifest = manifest;
         _github.Files["https://dl/1.1/manifest"] = JsonSerializer.SerializeToUtf8Bytes(manifest, LauncherJsonContext.Default.ReleaseManifest);
         _github.Files["https://dl/1.1/delta"] = File.ReadAllBytes(Fixture(DeltaName));
         _github.Files["https://dl/1.1/full"] = File.ReadAllBytes(Fixture("templates-new.zip"));
@@ -64,6 +68,16 @@ public sealed class TemplateInstallTests : IDisposable
     }
 
     public void Dispose() => FileUtil.DeleteDirectory(_dir);
+
+    private static List<FileEntry> ManifestFiles(string zipPath)
+    {
+        using var zip = ZipFile.OpenRead(zipPath);
+        return zip.Entries.Where(e => !e.FullName.EndsWith('/')).Select(e =>
+        {
+            using var stream = e.Open();
+            return new FileEntry { Path = e.FullName, Size = e.Length, Sha256 = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(stream)) };
+        }).ToList();
+    }
 
     private ReleaseAsset Asset(long id, string name, string url) =>
         new() { Id = id, Name = name, DownloadUrl = url, Size = _github.Files[url].Length };
@@ -202,5 +216,35 @@ public sealed class TemplateInstallTests : IDisposable
         var build = await _installer.InstallAsync(releases[0], plan!, releases);
 
         Assert.Equal(paths.Order(), Snapshot(build.PackageDirectory(Package)).Keys.Order());
+    }
+
+    [Fact]
+    public async Task ChecksDownloadedTemplatesAgainstTheManifest()
+    {
+        _manifest.Packages[0].Files.First(f => f.Path == "templates/linux_debug.x86_64").Sha256 = new string('0', 64);
+        _github.Files["https://dl/1.1/manifest"] = JsonSerializer.SerializeToUtf8Bytes(_manifest, LauncherJsonContext.Default.ReleaseManifest);
+        var releases = await ReleasesAsync();
+        var plan = await _installer.PlanAsync(releases[0], Package, releases, useDeltas: false, [Linux]);
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => _installer.InstallAsync(releases[0], plan!, releases));
+        Assert.Null(_library.Find("1.1"));
+    }
+
+    [Fact]
+    public async Task OneCallerCancellingDoesNotCancelOthers()
+    {
+        var releases = await ReleasesAsync();
+        var asset = releases[0].Assets.First(a => a.Name == AssetName);
+
+        _github.Gate = new TaskCompletionSource();
+        using var cts = new CancellationTokenSource();
+        var cancelled = _installer.GetRemoteZipAsync(asset.DownloadUrl, asset.Size, cts.Token);
+        var other = _installer.GetRemoteZipAsync(asset.DownloadUrl, asset.Size);
+        cts.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelled);
+        _github.Gate.SetResult();
+        var zip = await other;
+
+        Assert.Contains("templates/version.txt", zip.Entries.Keys);
     }
 }

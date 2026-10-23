@@ -101,18 +101,31 @@ public sealed class GitHubReleaseClient
 
         // The asset id changes when the manifest is re-uploaded, so it makes a good cache key.
         string cachePath = Path.Combine(ManifestCacheDir, $"{asset.Id}.json");
-        string json;
         if (File.Exists(cachePath))
         {
-            json = await File.ReadAllTextAsync(cachePath, cancellationToken);
-        }
-        else
-        {
-            json = await _http.GetStringAsync(asset.DownloadUrl, cancellationToken);
-            Directory.CreateDirectory(ManifestCacheDir);
-            await File.WriteAllTextAsync(cachePath, json, cancellationToken);
+            try
+            {
+                return Parse(await File.ReadAllTextAsync(cachePath, cancellationToken), release);
+            }
+            catch (JsonException)
+            {
+                // A damaged cache file is a cache miss.
+                File.Delete(cachePath);
+            }
         }
 
+        string json = await _http.GetStringAsync(asset.DownloadUrl, cancellationToken);
+        var manifest = Parse(json, release);
+        // Written without the token and moved into place, so a cancel or crash never leaves a partial file.
+        Directory.CreateDirectory(ManifestCacheDir);
+        string temp = cachePath + ".tmp";
+        await File.WriteAllTextAsync(temp, json, CancellationToken.None);
+        File.Move(temp, cachePath, overwrite: true);
+        return manifest;
+    }
+
+    private static ReleaseManifest? Parse(string json, ReleaseInfo release)
+    {
         var manifest = JsonSerializer.Deserialize(json, LauncherJsonContext.Default.ReleaseManifest);
         return manifest is { Format: ReleaseManifest.CurrentFormat } && manifest.Tag == release.Tag ? manifest : null;
     }

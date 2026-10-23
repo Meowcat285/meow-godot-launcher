@@ -16,7 +16,17 @@ internal sealed class FakeGitHub : HttpMessageHandler
     /// <summary>When false, range requests get the whole file, like servers without range support.</summary>
     public bool SupportsRanges { get; set; } = true;
 
-    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    /// <summary>When set, responses wait for it, to test requests in flight.</summary>
+    public TaskCompletionSource? Gate { get; set; }
+
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        if (Gate is { } gate)
+            await gate.Task.WaitAsync(cancellationToken);
+        return Respond(request);
+    }
+
+    private HttpResponseMessage Respond(HttpRequestMessage request)
     {
         if (Offline)
             throw new HttpRequestException("offline");
@@ -24,17 +34,17 @@ internal sealed class FakeGitHub : HttpMessageHandler
         var range = request.Headers.Range?.Ranges.SingleOrDefault();
         Requested.Add(range is null ? url : $"{url} {range.From}-{range.To}");
         if (!Files.TryGetValue(url, out var data))
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
         if (range is null || !SupportsRanges)
         {
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(data) });
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(data) };
         }
         // Like GitHub, only explicit ranges are supported.
         if (range.From is not { } from)
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotImplemented));
+            return new HttpResponseMessage(HttpStatusCode.NotImplemented);
         long to = Math.Min(range.To ?? data.Length - 1, data.Length - 1);
         var content = new ByteArrayContent(data, (int)from, (int)(to - from + 1));
         content.Headers.ContentRange = new ContentRangeHeaderValue(from, to, data.Length);
-        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.PartialContent) { Content = content });
+        return new HttpResponseMessage(HttpStatusCode.PartialContent) { Content = content };
     }
 }

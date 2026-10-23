@@ -42,7 +42,7 @@ public static class BsPatch
             long diffLength = BinaryPrimitives.ReadInt64LittleEndian(header.AsSpan(0));
             long extraLength = BinaryPrimitives.ReadInt64LittleEndian(header.AsSpan(8));
             long seek = BinaryPrimitives.ReadInt64LittleEndian(header.AsSpan(16));
-            if (diffLength < 0 || extraLength < 0 || newPos + diffLength + extraLength > newSize)
+            if (diffLength < 0 || extraLength < 0 || diffLength > newSize - newPos || extraLength > newSize - newPos - diffLength)
                 throw new InvalidDataException("Corrupt patch: record exceeds the new file size.");
 
             for (long done = 0; done < diffLength;)

@@ -138,4 +138,18 @@ public sealed class InstallerTests : IDisposable
         Assert.NotNull(list.Warning);
         Assert.Equal(2, list.Releases.Count);
     }
+
+    [Fact]
+    public async Task RecoversFromDamagedManifestCache()
+    {
+        var releases = (await _client.GetReleasesAsync(50)).Releases;
+        Assert.NotNull(await _client.GetManifestAsync(releases[0]));
+        string cached = Path.Combine(_dir, "cache", "manifests", "1.json");
+        File.WriteAllText(cached, File.ReadAllText(cached)[..20]);
+
+        var manifest = await _client.GetManifestAsync(releases[0]);
+
+        Assert.NotNull(manifest);
+        Assert.Equal(_github.Files["https://dl/1.1/manifest"], File.ReadAllBytes(cached));
+    }
 }

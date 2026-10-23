@@ -228,7 +228,7 @@ public partial class MainViewModel : ViewModelBase
             return;
         await RunAsync($"Installing {item.Tag}…", async token =>
         {
-            var replacedBases = new HashSet<string>();
+            var replaced = new HashSet<(string Tag, string Package)>();
             foreach (var (package, components) in packages)
             {
                 var plan = await _installer.PlanAsync(item.Release, package, _releases, _settings.UseDeltaUpdates, components, token)
@@ -236,17 +236,31 @@ public partial class MainViewModel : ViewModelBase
                 var progress = new Progress<InstallProgress>(ReportProgress);
                 await _installer.InstallAsync(item.Release, plan, _releases, progress, token);
                 if (plan.BaseTag is not null)
-                    replacedBases.Add(plan.BaseTag);
+                    replaced.Add((plan.BaseTag, package));
             }
 
+            string? warning = null;
             if (_settings.RemoveOldBuildsAfterUpdate)
             {
-                foreach (var tag in replacedBases)
-                    if (_library.Find(tag) is { } old)
-                        _library.Remove(old);
+                // Only the packages that were updated, the base build may have others still in use.
+                foreach (var (tag, package) in replaced)
+                {
+                    try
+                    {
+                        if (_library.Find(tag) is not { } old)
+                            continue;
+                        _library.RemovePackage(old, package);
+                        if (old.Packages.Count == 0)
+                            _library.Remove(old);
+                    }
+                    catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                    {
+                        warning = $" Couldn't remove the old build {tag}, is it still running? {e.Message}";
+                    }
+                }
             }
             RefreshInstalledState();
-            StatusText = $"Installed {item.Tag}.";
+            StatusText = $"Installed {item.Tag}.{warning}";
         });
     }
 
@@ -271,9 +285,10 @@ public partial class MainViewModel : ViewModelBase
             if (_settings.SyncTemplatesOnLaunch && build.HasTemplates)
             {
                 StatusText = "Copying export templates…";
+                bool foreign = EditorLauncher.SyncedTemplatesTag(build) == "";
                 var dest = await Task.Run(() => EditorLauncher.SyncExportTemplates(build));
                 if (dest is not null)
-                    StatusText = $"Export templates of {build.Tag} copied to {dest}.";
+                    StatusText = $"Export templates of {build.Tag} copied to {dest}{ReplacedNote(foreign)}.";
             }
             using var process = EditorLauncher.Launch(build, _settings.LaunchArguments);
             StatusText = $"Launched {build.Tag}.";
@@ -284,6 +299,10 @@ public partial class MainViewModel : ViewModelBase
         }
     }
 
+    /// <summary>Points out that templates the launcher didn't install, e.g. from the editor, were replaced.</summary>
+    private static string ReplacedNote(bool foreign) =>
+        foreign ? ", replacing export templates that weren't installed by the launcher" : "";
+
     [RelayCommand]
     private async Task SyncTemplatesAsync()
     {
@@ -291,8 +310,9 @@ public partial class MainViewModel : ViewModelBase
             return;
         try
         {
+            bool foreign = EditorLauncher.SyncedTemplatesTag(build) == "";
             var dest = await Task.Run(() => EditorLauncher.SyncExportTemplates(build));
-            StatusText = dest is null ? "Export templates are already installed in Godot." : $"Export templates copied to {dest}.";
+            StatusText = dest is null ? "Export templates are already installed in Godot." : $"Export templates copied to {dest}{ReplacedNote(foreign)}.";
             UpdateSyncedTemplatesText(SelectedRelease);
         }
         catch (Exception e)

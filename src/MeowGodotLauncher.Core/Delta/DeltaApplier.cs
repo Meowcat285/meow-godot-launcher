@@ -139,7 +139,16 @@ public static class DeltaApplier
             {
                 using var entry = OpenEntry(delta, op);
                 using var data = new DecompressionStream(entry);
-                data.CopyTo(output);
+                // Stops at the expected size instead of filling the disk with a bad stream.
+                var buffer = new byte[1 << 16];
+                int read;
+                while ((read = data.Read(buffer)) > 0)
+                {
+                    if (output.BytesWritten + read > op.Size)
+                        throw new DeltaException($"\"{op.Path}\" is larger than expected after patching.");
+                    output.Write(buffer, 0, read);
+                    cancellationToken.ThrowIfCancellationRequested();
+                }
                 break;
             }
             default:

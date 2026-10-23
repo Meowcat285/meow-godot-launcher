@@ -1,3 +1,4 @@
+using System.Text.Json;
 using MeowGodotLauncher.Core.Delta;
 using MeowGodotLauncher.Core.GitHub;
 using MeowGodotLauncher.Core.Remote;
@@ -31,12 +32,14 @@ public sealed class Installer(BuildLibrary library, GitHubReleaseClient client, 
     /// <summary>Reads the file list of a zip asset, cached for the lifetime of the installer.</summary>
     public Task<RemoteZip> GetRemoteZipAsync(string url, long size, CancellationToken cancellationToken = default)
     {
+        Task<RemoteZip> task;
         lock (_remoteZips)
         {
-            if (!_remoteZips.TryGetValue(url, out var task) || task.IsFaulted || task.IsCanceled)
-                _remoteZips[url] = task = RemoteZip.OpenAsync(http, url, size, cancellationToken);
-            return task;
+            // Shared between callers, so it isn't cancelled with any one of them.
+            if (!_remoteZips.TryGetValue(url, out task!) || task.IsFaulted || task.IsCanceled)
+                _remoteZips[url] = task = RemoteZip.OpenAsync(http, url, size, CancellationToken.None);
         }
+        return task.WaitAsync(cancellationToken);
     }
 
     /// <summary>Lists the export templates of a release that can be installed separately, with their download sizes.</summary>
@@ -112,7 +115,7 @@ public sealed class Installer(BuildLibrary library, GitHubReleaseClient client, 
                 foreach (var delta in manifest.FindPackage(packageId)?.Deltas ?? [])
                     partialCosts[(release.Tag, delta.Asset)] = await PartialDeltaCostAsync(release, delta, paths, cancellationToken);
             }
-            catch (Exception e) when (e is HttpRequestException or IOException or InvalidDataException or DeltaException)
+            catch (Exception e) when (e is HttpRequestException or IOException or InvalidDataException or DeltaException or JsonException)
             {
                 // A missing manifest or delta only means fewer delta options.
             }
@@ -142,9 +145,9 @@ public sealed class Installer(BuildLibrary library, GitHubReleaseClient client, 
         lock (_descriptors)
         {
             if (!_descriptors.TryGetValue(url, out task!) || task.IsFaulted || task.IsCanceled)
-                _descriptors[url] = task = ReadRemoteDescriptorAsync(zip, cancellationToken);
+                _descriptors[url] = task = ReadRemoteDescriptorAsync(zip, CancellationToken.None);
         }
-        return (zip, await task);
+        return (zip, await task.WaitAsync(cancellationToken));
     }
 
     private static async Task<DeltaDescriptor> ReadRemoteDescriptorAsync(RemoteZip zip, CancellationToken cancellationToken)
@@ -188,15 +191,7 @@ public sealed class Installer(BuildLibrary library, GitHubReleaseClient client, 
         IProgress<InstallProgress>? progress, CancellationToken cancellationToken)
     {
         var asset = FindAsset(target, packageId) ?? throw new InvalidOperationException($"Release {target.Tag} has no {packageId} asset.");
-        string? sha256 = null;
-        try
-        {
-            sha256 = (await client.GetManifestAsync(target, cancellationToken))?.FindPackage(packageId)?.AssetSha256;
-        }
-        catch (HttpRequestException)
-        {
-            // The checksum is optional, the size is still checked.
-        }
+        string? sha256 = (await TryGetPackageManifestAsync(target, packageId, cancellationToken))?.AssetSha256;
 
         string download = Path.Combine(DownloadsDirectory, $"{target.Tag}-{asset.Name}");
         string staging = library.CreateStagingDirectory();
@@ -218,6 +213,20 @@ public sealed class Installer(BuildLibrary library, GitHubReleaseClient client, 
         {
             TryDelete(download);
             TryDeleteDirectory(staging);
+        }
+    }
+
+    /// <summary>The manifest entry of a package, or null when the release has none or it can't be read.</summary>
+    /// <remarks>Checksums from it are optional, sizes and CRCs are still checked without them.</remarks>
+    private async Task<PackageManifest?> TryGetPackageManifestAsync(ReleaseInfo release, string packageId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return (await client.GetManifestAsync(release, cancellationToken))?.FindPackage(packageId);
+        }
+        catch (Exception e) when (e is HttpRequestException or IOException or JsonException)
+        {
+            return null;
         }
     }
 
@@ -243,19 +252,34 @@ public sealed class Installer(BuildLibrary library, GitHubReleaseClient client, 
         var asset = FindAsset(release, packageId) ?? throw new InvalidOperationException($"Release {release.Tag} has no {packageId} asset.");
         var zip = await GetRemoteZipAsync(asset.DownloadUrl, asset.Size, cancellationToken);
         var entries = paths.Select(p => zip.Entries.GetValueOrDefault(p)).OfType<RemoteZipEntry>().Where(e => !e.IsDirectory).ToList();
+        // The zip's CRCs come from the same server as the data, so check against the manifest's SHA-256 too.
+        var expected = (await TryGetPackageManifestAsync(release, packageId, cancellationToken))?.Files.ToDictionary(f => f.Path);
         long total = Math.Max(1, entries.Sum(e => e.CompressedSize));
         long done = 0;
         foreach (var entry in entries)
         {
             string name = Path.GetFileName(entry.Name);
             long before = done;
-            await zip.ExtractToFileAsync(entry, FileUtil.ResolveUnder(destination, entry.Name),
-                new Progress<long>(n => progress?.Report(new($"Downloading {name} ({FileUtil.FormatSize(before + n)} of {FileUtil.FormatSize(total)})", (double)(before + n) / total))),
-                cancellationToken);
+            string path = FileUtil.ResolveUnder(destination, entry.Name);
+            string download = path + ".download";
+            try
+            {
+                await zip.ExtractToFileAsync(entry, download,
+                    new Progress<long>(n => progress?.Report(new($"Downloading {name} ({FileUtil.FormatSize(before + n)} of {FileUtil.FormatSize(total)})", (double)(before + n) / total))),
+                    cancellationToken);
+                if (expected?.GetValueOrDefault(entry.Name) is { } file
+                    && (new FileInfo(download).Length != file.Size || !string.Equals(FileUtil.Sha256(download), file.Sha256, StringComparison.OrdinalIgnoreCase)))
+                    throw new InvalidDataException($"\"{entry.Name}\" doesn't match the release's checksum.");
+                File.Move(download, path, overwrite: true);
+            }
+            finally
+            {
+                TryDelete(download);
+            }
             done += entry.CompressedSize;
             // Same permissions as extracting the whole archive.
             int mode = (entry.ExternalAttributes >> 16) & 0x1FF;
-            FileUtil.SetMode(FileUtil.ResolveUnder(destination, entry.Name), mode == 0 ? 0x1A4 : mode);
+            FileUtil.SetMode(path, mode == 0 ? 0x1A4 : mode);
         }
     }
 
@@ -315,7 +339,7 @@ public sealed class Installer(BuildLibrary library, GitHubReleaseClient client, 
                 {
                     if (paths is null)
                     {
-                        string download = Path.Combine(DownloadsDirectory, step.Delta.Asset);
+                        string download = FileUtil.ResolveUnder(DownloadsDirectory, step.Delta.Asset);
                         try
                         {
                             await client.DownloadAsync(client.AssetUrl(release, step.Delta.Asset), download, step.Delta.Size, step.Delta.Sha256,
