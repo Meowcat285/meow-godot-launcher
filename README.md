@@ -121,7 +121,8 @@ To produce a self-contained single-file executable like the released ones:
 dotnet publish src/MeowGodotLauncher -c Release -r linux-x64 -o publish   # or win-x64, osx-arm64, osx-x64
 ```
 
-Pushing a `v*` tag builds all platforms in CI and publishes them as a GitHub release.
+To release, run the **CI** workflow by hand (Actions → CI → Run workflow) with the version to publish. It builds
+all platforms from the selected branch and publishes them as a GitHub release tagged `v<version>`.
 
 ### Layout
 
