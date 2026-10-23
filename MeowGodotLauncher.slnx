@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/MeowGodotLauncher.Core/MeowGodotLauncher.Core.csproj" />
+    <Project Path="src/MeowGodotLauncher/MeowGodotLauncher.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/MeowGodotLauncher.Core.Tests/MeowGodotLauncher.Core.Tests.csproj" />
+  </Folder>
+</Solution>
