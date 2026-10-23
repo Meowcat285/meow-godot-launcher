@@ -30,19 +30,11 @@ public static class EditorLauncher
     /// <returns>The folder the templates were installed to, or null if they were already there.</returns>
     public static string? SyncExportTemplates(InstalledBuild build)
     {
-        if (!build.HasTemplates)
-            throw new InvalidOperationException($"Build {build.Tag} has no export templates installed.");
-        string source = Path.Combine(build.PackageDirectory(PackageKinds.ExportTemplates), "templates");
-        string versionFile = Path.Combine(source, "version.txt");
-        if (!File.Exists(versionFile))
-            throw new FileNotFoundException("The export templates have no version.txt.", versionFile);
-        string version = File.ReadAllText(versionFile).Trim();
-        if (!FileUtil.IsSafeName(version))
-            throw new InvalidDataException($"Unexpected export templates version \"{version}\".");
-
-        string dest = Path.Combine(LauncherPaths.GodotExportTemplates, version);
+        string source = TemplatesSource(build);
+        string dest = GodotTemplatesFolder(build);
         string marker = Path.Combine(dest, TemplatesMarker);
-        if (File.Exists(marker) && File.ReadAllText(marker).Trim() == build.Tag)
+        string stamp = MarkerFor(build);
+        if (File.Exists(marker) && File.ReadAllText(marker).Trim() == stamp)
             return null;
 
         FileUtil.DeleteDirectory(dest);
@@ -54,8 +46,57 @@ public static class EditorLauncher
             if (!OperatingSystem.IsWindows())
                 File.SetUnixFileMode(target, File.GetUnixFileMode(file));
         }
-        File.WriteAllText(marker, build.Tag);
+        File.WriteAllText(marker, stamp);
         return dest;
+    }
+
+    /// <summary>
+    /// Which build's export templates are in Godot's folder for the version of <paramref name="build"/>'s templates:
+    /// its tag if the launcher put them there, "" if they were installed some other way, or null if there are none.
+    /// </summary>
+    public static string? SyncedTemplatesTag(InstalledBuild build)
+    {
+        string dest = GodotTemplatesFolder(build);
+        if (!Directory.Exists(dest))
+            return null;
+        string marker = Path.Combine(dest, TemplatesMarker);
+        return File.Exists(marker) ? File.ReadLines(marker).FirstOrDefault()?.Trim() ?? "" : "";
+    }
+
+    /// <summary>Removes export templates the launcher copied to Godot's folder, leaving others alone.</summary>
+    /// <returns>Whether templates were removed.</returns>
+    public static bool RemoveSyncedTemplates(InstalledBuild build)
+    {
+        string dest = GodotTemplatesFolder(build);
+        if (!File.Exists(Path.Combine(dest, TemplatesMarker)))
+            return false;
+        FileUtil.DeleteDirectory(dest);
+        return true;
+    }
+
+    private static string TemplatesSource(InstalledBuild build)
+    {
+        if (!build.HasTemplates)
+            throw new InvalidOperationException($"Build {build.Tag} has no export templates installed.");
+        return Path.Combine(build.PackageDirectory(PackageKinds.ExportTemplates), TemplateComponents.Folder);
+    }
+
+    private static string GodotTemplatesFolder(InstalledBuild build)
+    {
+        string versionFile = Path.Combine(TemplatesSource(build), TemplateComponents.VersionFile);
+        if (!File.Exists(versionFile))
+            throw new FileNotFoundException("The export templates have no version.txt.", versionFile);
+        string version = File.ReadAllText(versionFile).Trim();
+        if (!FileUtil.IsSafeName(version))
+            throw new InvalidDataException($"Unexpected export templates version \"{version}\".");
+        return Path.Combine(LauncherPaths.GodotExportTemplates, version);
+    }
+
+    /// <summary>Identifies the copied templates: the build's tag, then its installed components.</summary>
+    private static string MarkerFor(InstalledBuild build)
+    {
+        var components = build.Packages[PackageKinds.ExportTemplates].Components;
+        return $"{build.Tag}\n{(components is null ? "all" : string.Join(',', components))}";
     }
 
     /// <summary>Splits a command line on spaces, honoring double quotes.</summary>

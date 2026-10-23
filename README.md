@@ -15,7 +15,9 @@ archive. Everything is served from GitHub Releases, no other hosting is needed.
 - Install any number of builds side by side, launch them, open their folder, remove them.
 - Delta updates from any installed build, chaining several releases when needed, with automatic fallback to the
   full download if anything doesn't check out.
-- Optional export templates per build, copied into Godot's export templates folder when launching that build.
+- Export templates per build, picked per platform like in the editor's export template manager: only the
+  templates of the chosen platforms are downloaded, and platforms can be added or removed later. The templates
+  are copied into Godot's export templates folder when launching that build.
 - Works offline with the releases it has already seen. Uses ETags so refreshing doesn't eat into GitHub's API
   rate limit, and accepts an optional token for heavy use.
 
@@ -72,14 +74,36 @@ For a sense of the savings, here's what updating from `2026.10.5` to `2026.10.6`
 | Export templates | 474 MB | 108 MB |
 
 The 161 MB Linux editor binary alone patches with 2.8 MB. Most of what's left in the templates delta is the
-Android APKs and AARs, which are compressed archives the launcher doesn't rebuild.
+Android APKs and AARs, which are compressed archives the launcher doesn't rebuild. That part is only downloaded
+when the Android templates are installed, see below.
+
+### Export templates per platform
+
+The export templates archive holds every platform, but most projects export to a few. Like the editor, the
+launcher can install only some platforms (the platform it runs on by default, changeable in the settings and
+for each build in its **Export templates** tab). It reads the file list at the end of the `.tpz` and downloads
+just the chosen templates with HTTP range requests, which GitHub's release downloads support. Updates do the
+same with deltas: they fetch the delta's file list, then only the patches of the installed templates.
+
+Updating from `2026.10.6` to `2026.10.7`, for example:
+
+| Platform | Full download | Delta |
+| --- | --- | --- |
+| Linux x86_64 | 73.8 MB | 62 KB |
+| Windows x86_64 | 65.6 MB | 62 KB |
+| macOS | 108.8 MB | 66 KB |
+| iOS | 106.9 MB | 110 KB |
+| Android | 116.3 MB | 105 MB |
+
+If a server ever stops honoring range requests, the launcher downloads the whole archive and keeps the chosen
+platforms.
 
 ### Why no S3 or other storage
 
 GitHub Releases is enough: deltas are small, a release can hold up to 1000 assets of up to 2 GiB each, and asset
 downloads from github.com aren't subject to the API rate limit. A separate storage provider would only be worth it
-for things Releases can't do, like serving byte ranges of a single shared archive or keeping patches for many more
-releases than are sensible to attach. Nothing in the current design needs that.
+for things Releases can't do, like keeping patches for many more releases than are sensible to attach. Nothing
+in the current design needs that, and byte ranges (used for per-platform templates) work on release downloads.
 
 ## Building
 

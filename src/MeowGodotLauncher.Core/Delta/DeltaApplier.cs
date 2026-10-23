@@ -19,11 +19,22 @@ public static class DeltaApplier
     {
         using var archive = ZipFile.OpenRead(deltaPath);
         var descriptor = ReadDescriptor(archive);
-        Directory.CreateDirectory(targetDir);
+        Apply(descriptor, entry => (archive.GetEntry(entry) ?? throw new DeltaException($"Delta archive is missing entry \"{entry}\".")).Open(),
+            sourceDir, targetDir, null, progress, cancellationToken);
+        return descriptor;
+    }
 
-        long total = Math.Max(1, descriptor.Operations.Sum(o => o.Size));
+    /// <summary>Applies the operations of <paramref name="descriptor"/> accepted by <paramref name="include"/> (all if null).</summary>
+    /// <param name="openData">Opens a data entry of the delta, by name.</param>
+    public static void Apply(DeltaDescriptor descriptor, Func<string, Stream> openData, string sourceDir, string targetDir,
+        Func<DeltaOperation, bool>? include, IProgress<double>? progress = null, CancellationToken cancellationToken = default)
+    {
+        Directory.CreateDirectory(targetDir);
+        var operations = descriptor.Operations.Where(o => include?.Invoke(o) ?? true).ToList();
+
+        long total = Math.Max(1, operations.Sum(o => o.Size));
         long done = 0;
-        foreach (var op in descriptor.Operations)
+        foreach (var op in operations)
         {
             cancellationToken.ThrowIfCancellationRequested();
             string target = FileUtil.ResolveUnder(targetDir, op.Path);
@@ -31,7 +42,7 @@ public static class DeltaApplier
 
             try
             {
-                ApplyOperation(archive, op, sourceDir, target, cancellationToken);
+                ApplyOperation(openData, op, sourceDir, target, cancellationToken);
             }
             catch (Exception e) when (e is not OperationCanceledException and not DeltaException)
             {
@@ -42,13 +53,17 @@ public static class DeltaApplier
             done += op.Size;
             progress?.Report((double)done / total);
         }
-        return descriptor;
     }
 
     public static DeltaDescriptor ReadDescriptor(ZipArchive archive)
     {
         var entry = archive.GetEntry(DeltaDescriptor.EntryName) ?? throw new DeltaException("Delta archive has no descriptor.");
         using var stream = entry.Open();
+        return ReadDescriptor(stream);
+    }
+
+    public static DeltaDescriptor ReadDescriptor(Stream stream)
+    {
         var descriptor = JsonSerializer.Deserialize(stream, LauncherJsonContext.Default.DeltaDescriptor)
             ?? throw new DeltaException("Delta descriptor is empty.");
         if (descriptor.Format != ReleaseManifest.CurrentFormat)
@@ -56,7 +71,17 @@ public static class DeltaApplier
         return descriptor;
     }
 
-    private static void ApplyOperation(ZipArchive delta, DeltaOperation op, string sourceDir, string target, CancellationToken cancellationToken)
+    /// <summary>Names of the data entries an operation needs, including those of archive entries.</summary>
+    public static IEnumerable<string> DataEntries(DeltaOperation op)
+    {
+        if (op.Entry is not null)
+            yield return op.Entry;
+        foreach (var entry in op.Entries ?? [])
+            foreach (var name in DataEntries(entry))
+                yield return name;
+    }
+
+    private static void ApplyOperation(Func<string, Stream> delta, DeltaOperation op, string sourceDir, string target, CancellationToken cancellationToken)
     {
         if (op.Op == DeltaOps.Archive)
         {
@@ -67,7 +92,7 @@ public static class DeltaApplier
         WriteFile(delta, op, new DirectorySource(sourceDir), file, cancellationToken);
     }
 
-    private static void ApplyArchive(ZipArchive delta, DeltaOperation op, string sourceDir, string target, CancellationToken cancellationToken)
+    private static void ApplyArchive(Func<string, Stream> delta, DeltaOperation op, string sourceDir, string target, CancellationToken cancellationToken)
     {
         if (op.Entries is null)
             throw new DeltaException($"Archive operation for \"{op.Path}\" has no entries.");
@@ -93,7 +118,7 @@ public static class DeltaApplier
     }
 
     /// <summary>Writes the output of a copy, patch or add operation, and checks it.</summary>
-    private static void WriteFile(ZipArchive delta, DeltaOperation op, ISource source, Stream destination, CancellationToken cancellationToken)
+    private static void WriteFile(Func<string, Stream> delta, DeltaOperation op, ISource source, Stream destination, CancellationToken cancellationToken)
     {
         using var output = new HashingStream(destination);
         switch (op.Op)
@@ -137,11 +162,11 @@ public static class DeltaApplier
         return path;
     }
 
-    private static Stream OpenEntry(ZipArchive archive, DeltaOperation op)
+    private static Stream OpenEntry(Func<string, Stream> delta, DeltaOperation op)
     {
-        var entry = (op.Entry is null ? null : archive.GetEntry(op.Entry))
-            ?? throw new DeltaException($"Delta archive is missing the data for \"{op.Path}\".");
-        return entry.Open();
+        if (op.Entry is null)
+            throw new DeltaException($"Operation for \"{op.Path}\" has no data.");
+        return delta(op.Entry);
     }
 
     /// <summary>Where the source files of operations come from.</summary>

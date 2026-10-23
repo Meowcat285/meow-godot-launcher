@@ -18,6 +18,10 @@ public partial class SettingsViewModel : ViewModelBase
     [ObservableProperty] public partial bool RemoveOldBuildsAfterUpdate { get; set; }
     [ObservableProperty] public partial string LaunchArguments { get; set; } = "";
 
+    /// <summary>Export template platforms downloaded by default.</summary>
+    public IReadOnlyList<TemplateComponentItemViewModel> TemplateComponents { get; } =
+        Core.Library.TemplateComponents.All.Select(c => new TemplateComponentItemViewModel(c, null)).ToList();
+
     public string DefaultLibraryPath => LauncherPaths.DefaultLibrary;
 
     public string GodotTemplatesPath => LauncherPaths.GodotExportTemplates;
@@ -31,6 +35,8 @@ public partial class SettingsViewModel : ViewModelBase
         MaxReleases = settings.MaxReleases;
         UseDeltaUpdates = settings.UseDeltaUpdates;
         InstallExportTemplates = settings.InstallExportTemplates;
+        foreach (var item in TemplateComponents)
+            item.IsSelected = settings.TemplateComponents is not { } ids || ids.Contains(item.Id);
         SyncTemplatesOnLaunch = settings.SyncTemplatesOnLaunch;
         RemoveOldBuildsAfterUpdate = settings.RemoveOldBuildsAfterUpdate;
         LaunchArguments = settings.LaunchArguments;
@@ -45,6 +51,11 @@ public partial class SettingsViewModel : ViewModelBase
         settings.MaxReleases = (int)Math.Clamp(MaxReleases, 1, 100);
         settings.UseDeltaUpdates = UseDeltaUpdates;
         settings.InstallExportTemplates = InstallExportTemplates;
+        var selected = TemplateComponents.Where(c => c.IsSelected).Select(c => c.Id).ToList();
+        if (selected.Count == TemplateComponents.Count)
+            settings.TemplateComponents = null;
+        else if (selected.Count > 0)
+            settings.TemplateComponents = selected;
         settings.SyncTemplatesOnLaunch = SyncTemplatesOnLaunch;
         settings.RemoveOldBuildsAfterUpdate = RemoveOldBuildsAfterUpdate;
         settings.LaunchArguments = LaunchArguments;

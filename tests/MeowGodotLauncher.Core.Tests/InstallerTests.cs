@@ -1,4 +1,3 @@
-using System.Net;
 using System.Text.Json;
 using MeowGodotLauncher.Core.Delta;
 using MeowGodotLauncher.Core.GitHub;
@@ -27,7 +26,7 @@ public sealed class InstallerTests : IDisposable
     {
         _library = new BuildLibrary(Path.Combine(_dir, "library"));
         _client = new GitHubReleaseClient(new HttpClient(_github), "owner", "repo", null, Path.Combine(_dir, "cache"));
-        _installer = new Installer(_library, _client) { Log = _log.Add };
+        _installer = new Installer(_library, _client, new HttpClient(_github)) { Log = _log.Add };
 
         var manifest = new ReleaseManifest
         {
@@ -138,23 +137,5 @@ public sealed class InstallerTests : IDisposable
         Assert.True(list.FromCache);
         Assert.NotNull(list.Warning);
         Assert.Equal(2, list.Releases.Count);
-    }
-
-    private sealed class FakeGitHub : HttpMessageHandler
-    {
-        public Dictionary<string, byte[]> Files { get; } = [];
-        public List<string> Requested { get; } = [];
-        public bool Offline { get; set; }
-
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-        {
-            if (Offline)
-                throw new HttpRequestException("offline");
-            string url = request.RequestUri!.ToString();
-            Requested.Add(url);
-            return Task.FromResult(Files.TryGetValue(url, out var data)
-                ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(data) }
-                : new HttpResponseMessage(HttpStatusCode.NotFound));
-        }
     }
 }

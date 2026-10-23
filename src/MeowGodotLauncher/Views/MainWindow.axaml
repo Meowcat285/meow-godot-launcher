@@ -126,10 +126,66 @@
                                                 Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).RemoveCommand}" />
                                     </WrapPanel>
 
-                                    <TextBlock DockPanel.Dock="Top" Text="Release notes" FontWeight="SemiBold" Margin="0,0,0,4" />
-                                    <ScrollViewer>
-                                        <SelectableTextBlock Text="{Binding Notes}" TextWrapping="Wrap" />
-                                    </ScrollViewer>
+                                    <TabControl Padding="0,8,0,0">
+                                        <TabItem Header="Release notes" FontSize="15">
+                                            <ScrollViewer>
+                                                <SelectableTextBlock Text="{Binding Notes}" TextWrapping="Wrap" FontSize="14" />
+                                            </ScrollViewer>
+                                        </TabItem>
+                                        <TabItem Header="Export templates" FontSize="15" IsVisible="{Binding HasTemplatesAsset}">
+                                            <DockPanel>
+                                                <StackPanel DockPanel.Dock="Top" Spacing="4" Margin="0,0,0,8">
+                                                    <TextBlock Classes="muted" FontSize="13" TextWrapping="Wrap"
+                                                               Text="Pick the platforms to export to. Only their templates are downloaded, like in the editor's export template manager." />
+                                                    <TextBlock FontSize="13" TextWrapping="Wrap" Text="{Binding SyncedTemplatesText}"
+                                                               IsVisible="{Binding SyncedTemplatesText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                                </StackPanel>
+                                                <StackPanel DockPanel.Dock="Bottom" Spacing="8" Margin="0,8,0,0"
+                                                            IsEnabled="{Binding $parent[Window].((vm:MainViewModel)DataContext).IsIdle}">
+                                                    <TextBlock FontSize="13" TextWrapping="Wrap" Text="{Binding TemplateStatusText}"
+                                                               IsVisible="{Binding TemplateStatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                                    <WrapPanel Orientation="Horizontal">
+                                                        <WrapPanel.Styles>
+                                                            <Style Selector="Button">
+                                                                <Setter Property="Margin" Value="0,0,8,8" />
+                                                            </Style>
+                                                        </WrapPanel.Styles>
+                                                        <Button Classes="accent" Content="{Binding ApplyTemplatesText}" IsEnabled="{Binding HasTemplateChanges}"
+                                                                Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).ApplyTemplatesCommand}" />
+                                                        <Button Content="Undo changes" IsEnabled="{Binding HasTemplateChanges}"
+                                                                Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).ResetTemplateSelectionCommand}" />
+                                                        <Button Content="Select all" CommandParameter="true"
+                                                                Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).SelectAllTemplatesCommand}" />
+                                                        <Button Content="Select none" CommandParameter="false"
+                                                                Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).SelectAllTemplatesCommand}" />
+                                                        <Button Content="Remove from Godot" IsVisible="{Binding CanRemoveSyncedTemplates}"
+                                                                ToolTip.Tip="Delete the export templates the launcher copied to Godot's export templates folder."
+                                                                Command="{Binding $parent[Window].((vm:MainViewModel)DataContext).RemoveSyncedTemplatesCommand}" />
+                                                    </WrapPanel>
+                                                </StackPanel>
+                                                <ScrollViewer>
+                                                    <ItemsControl ItemsSource="{Binding TemplateComponents}">
+                                                        <ItemsControl.ItemTemplate>
+                                                            <DataTemplate x:DataType="vm:TemplateComponentItemViewModel">
+                                                                <CheckBox IsChecked="{Binding IsSelected}" Margin="0,0,0,2">
+                                                                    <StackPanel>
+                                                                        <StackPanel Orientation="Horizontal">
+                                                                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                                                            <TextBlock Classes="muted" Text="{Binding SizeText}" FontSize="12" Margin="8,0,0,0" VerticalAlignment="Center" />
+                                                                            <Border Classes="badge" Background="#3C8A4A" IsVisible="{Binding IsInstalled}">
+                                                                                <TextBlock Text="installed" />
+                                                                            </Border>
+                                                                        </StackPanel>
+                                                                        <TextBlock Classes="muted" FontSize="12" Text="{Binding Description}" TextWrapping="Wrap" />
+                                                                    </StackPanel>
+                                                                </CheckBox>
+                                                            </DataTemplate>
+                                                        </ItemsControl.ItemTemplate>
+                                                    </ItemsControl>
+                                                </ScrollViewer>
+                                            </DockPanel>
+                                        </TabItem>
+                                    </TabControl>
                                 </DockPanel>
                                 </Panel>
                             </Panel>
@@ -178,6 +234,24 @@
                         </CheckBox>
                         <CheckBox IsChecked="{Binding RemoveOldBuildsAfterUpdate}" Content="Remove the old build after a delta update" />
                         <CheckBox IsChecked="{Binding InstallExportTemplates}" Content="Also download export templates when installing a build" />
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="Export template platforms to download" />
+                            <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap"
+                                       Text="Used when installing export templates. Updates keep the platforms of the templates they update, and each build's platforms can be changed in its Export templates tab." />
+                            <ItemsControl ItemsSource="{Binding TemplateComponents}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel Orientation="Horizontal" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:TemplateComponentItemViewModel">
+                                        <CheckBox IsChecked="{Binding IsSelected}" Content="{Binding Name}" ToolTip.Tip="{Binding Description}"
+                                                  Width="200" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
                         <CheckBox IsChecked="{Binding SyncTemplatesOnLaunch}">
                             <TextBlock TextWrapping="Wrap">
                                 <Run Text="Copy a build's export templates to Godot when launching it" />

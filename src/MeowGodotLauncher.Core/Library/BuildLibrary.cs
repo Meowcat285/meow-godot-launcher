@@ -46,6 +46,9 @@ public sealed class InstalledPackage
 
     /// <summary>The release the package was patched from, if it was installed with deltas.</summary>
     public string? PatchedFrom { get; set; }
+
+    /// <summary>For export templates, the installed <see cref="TemplateComponents"/>. Null means all of them.</summary>
+    public List<string>? Components { get; set; }
 }
 
 /// <summary>
@@ -131,7 +134,7 @@ public sealed class BuildLibrary(string root)
 
     /// <summary>Moves a fully prepared package folder into a build, replacing any previous copy.</summary>
     public InstalledBuild CommitPackage(string tag, string? commit, DateTimeOffset? publishedAt, string packageId,
-        string stagedDir, string? patchedFrom)
+        string stagedDir, string? patchedFrom, IEnumerable<string>? components = null)
     {
         var build = Find(tag) ?? new InstalledBuild { Tag = tag, Directory = BuildDirectory(tag) };
         build.Commit = commit ?? build.Commit;
@@ -147,6 +150,7 @@ public sealed class BuildLibrary(string root)
             InstalledAt = DateTimeOffset.UtcNow,
             Executable = packageId == PackageKinds.ExportTemplates ? null : EditorLocator.Find(dest, packageId),
             PatchedFrom = patchedFrom,
+            Components = components?.Order().ToList(),
         };
         Save(build);
         return build;
@@ -167,13 +171,15 @@ public sealed class BuildLibrary(string root)
     }
 
     /// <summary>Extracts a release zip, keeping the Unix permissions stored in it.</summary>
+    /// <param name="include">Which files (by path in the zip) to extract; all when null.</param>
     public static void Extract(string archivePath, string destination, IProgress<double>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, Func<string, bool>? include = null)
     {
         using var archive = ZipFile.OpenRead(archivePath);
-        long total = Math.Max(1, archive.Entries.Sum(e => e.Length));
+        var entries = archive.Entries.Where(e => include is null || e.FullName.EndsWith('/') || include(e.FullName)).ToList();
+        long total = Math.Max(1, entries.Sum(e => e.Length));
         long done = 0;
-        foreach (var entry in archive.Entries)
+        foreach (var entry in entries)
         {
             cancellationToken.ThrowIfCancellationRequested();
             string path = FileUtil.ResolveUnder(destination, entry.FullName);

@@ -21,6 +21,12 @@ public sealed class LauncherSettings
     /// <summary>Also install export templates when installing a build.</summary>
     public bool InstallExportTemplates { get; set; }
 
+    /// <summary>
+    /// The <see cref="TemplateComponents"/> to download when installing export templates, like the platforms picked in
+    /// the editor's export template manager. Null downloads all of them as one file.
+    /// </summary>
+    public List<string>? TemplateComponents { get; set; } = Library.TemplateComponents.HostComponent is { } host ? [host] : null;
+
     /// <summary>Copy a build's export templates into Godot's export templates folder when launching it.</summary>
     public bool SyncTemplatesOnLaunch { get; set; } = true;
 

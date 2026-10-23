@@ -58,3 +58,18 @@ delta = build_delta("editor-linux-x86_64", "1.0", old, scan(old), "1.1", new, sc
 shutil.make_archive(str(out / "old"), "zip", old)
 shutil.make_archive(str(out / "new"), "zip", new)
 print(delta, delta.stat().st_size)
+
+# Export templates, to install per platform: Linux binaries are patched, a web zip is patched entry by entry,
+# Windows templates are only in the new release.
+told, tnew = work / "templates-old", work / "templates-new"
+write(told / "templates/version.txt", b"4.8.beta.mono\n"); write(tnew / "templates/version.txt", b"4.8.beta.mono\n")
+for name in ("linux_debug.x86_64", "linux_release.x86_64"):
+    write(told / "templates" / name, old_exe, 0o755); write(tnew / "templates" / name, new_exe, 0o755)
+nested(told / "templates/web_debug.zip", old_exe, {}); nested(tnew / "templates/web_debug.zip", new_exe, {"sub/new.txt": b"added\n"})
+nested(told / "templates/web_release.zip", old_exe[::2], {}); nested(tnew / "templates/web_release.zip", new_exe[::2], {})
+for name in ("windows_debug_x86_64.exe", "windows_release_x86_64.exe"):
+    write(tnew / "templates" / name, new_exe[::-1])
+delta = build_delta("export-templates", "1.0", told, scan(told), "1.1", tnew, scan(tnew), work, out, 1)
+shutil.make_archive(str(out / "templates-old"), "zip", told)
+shutil.make_archive(str(out / "templates-new"), "zip", tnew)
+print(delta, delta.stat().st_size)

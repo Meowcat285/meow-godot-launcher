@@ -65,7 +65,7 @@ public partial class MainViewModel : ViewModelBase
     {
         _library = new BuildLibrary(_settings.ResolvedLibraryPath);
         _client = new GitHubReleaseClient(Http, _settings.Owner, _settings.Repository, _settings.GitHubToken, LauncherPaths.Cache);
-        _installer = new Installer(_library, _client) { Log = message => StatusText = message };
+        _installer = new Installer(_library, _client, Http) { Log = message => StatusText = message };
         OnPropertyChanged(nameof(RepositoryText));
     }
 
@@ -75,7 +75,12 @@ public partial class MainViewModel : ViewModelBase
         await RefreshAsync();
     }
 
-    partial void OnSelectedReleaseChanged(ReleaseItemViewModel? value) => _ = UpdatePlanTextAsync(value);
+    partial void OnSelectedReleaseChanged(ReleaseItemViewModel? value)
+    {
+        _ = UpdatePlanTextAsync(value);
+        _ = LoadTemplateComponentsAsync(value);
+        UpdateSyncedTemplatesText(value);
+    }
 
     [RelayCommand]
     private async Task RefreshAsync()
@@ -100,7 +105,7 @@ public partial class MainViewModel : ViewModelBase
         Releases.Clear();
         for (int i = 0; i < _releases.Count; i++)
         {
-            var item = new ReleaseItemViewModel(_releases[i], i == 0);
+            var item = new ReleaseItemViewModel(_releases[i], i == 0) { DefaultTemplateComponents = _settings.TemplateComponents };
             item.Build = builds.GetValueOrDefault(_releases[i].Tag);
             Releases.Add(item);
         }
@@ -115,6 +120,7 @@ public partial class MainViewModel : ViewModelBase
             item.Build = builds.GetValueOrDefault(item.Tag);
         UpdateBanner(builds.Values);
         _ = UpdatePlanTextAsync(SelectedRelease);
+        UpdateSyncedTemplatesText(SelectedRelease);
     }
 
     private void UpdateBanner(IEnumerable<InstalledBuild> builds)
@@ -125,16 +131,20 @@ public partial class MainViewModel : ViewModelBase
             : null;
     }
 
-    /// <summary>Packages that installing <paramref name="item"/> would download.</summary>
-    private List<string> MissingPackages(ReleaseItemViewModel item, bool includeTemplates)
+    /// <summary>Packages that installing <paramref name="item"/> would download, with the template platforms to install.</summary>
+    private List<(string Package, IReadOnlyList<string>? Components)> MissingPackages(ReleaseItemViewModel item, bool includeTemplates,
+        IReadOnlyList<string>? templateComponents)
     {
-        var packages = new List<string>();
+        var packages = new List<(string, IReadOnlyList<string>?)>();
         if (item.CanInstallEditor && HostEditor is not null)
-            packages.Add(HostEditor);
+            packages.Add((HostEditor, null));
         if (includeTemplates && item.CanInstallTemplates)
-            packages.Add(PackageKinds.ExportTemplates);
+            packages.Add((PackageKinds.ExportTemplates, templateComponents));
         return packages;
     }
+
+    private List<(string Package, IReadOnlyList<string>? Components)> MissingPackages(ReleaseItemViewModel item) =>
+        MissingPackages(item, _settings.InstallExportTemplates, _settings.TemplateComponents);
 
     private async Task UpdatePlanTextAsync(ReleaseItemViewModel? item)
     {
@@ -142,7 +152,7 @@ public partial class MainViewModel : ViewModelBase
         if (item is null)
             return;
         var cts = _planning = new CancellationTokenSource();
-        var packages = MissingPackages(item, _settings.InstallExportTemplates);
+        var packages = MissingPackages(item);
         if (packages.Count == 0)
         {
             item.PlanText = "";
@@ -153,9 +163,9 @@ public partial class MainViewModel : ViewModelBase
         try
         {
             var lines = new List<string>();
-            foreach (var package in packages)
+            foreach (var (package, components) in packages)
             {
-                var plan = await _installer.PlanAsync(item.Release, package, _releases, _settings.UseDeltaUpdates, cts.Token);
+                var plan = await _installer.PlanAsync(item.Release, package, _releases, _settings.UseDeltaUpdates, components, cts.Token);
                 if (plan is not null)
                     lines.Add(DescribePlan(plan));
             }
@@ -173,7 +183,8 @@ public partial class MainViewModel : ViewModelBase
 
     private static string DescribePlan(InstallPlan plan)
     {
-        string what = plan.PackageId == PackageKinds.ExportTemplates ? "Export templates" : "Editor";
+        string what = plan.PackageId != PackageKinds.ExportTemplates ? "Editor"
+            : plan.Components is null ? "Export templates" : $"Export templates for {DescribeComponents(plan.Components)}";
         if (!plan.UsesDeltas)
             return $"{what}: {FileUtil.FormatSize(plan.FullSize)} download.";
         string chain = plan.Steps.Count == 1 ? $"from {plan.BaseTag}" : $"from {plan.BaseTag} in {plan.Steps.Count} steps";
@@ -181,13 +192,18 @@ public partial class MainViewModel : ViewModelBase
         return $"{what}: {FileUtil.FormatSize(plan.DownloadSize)} delta update {chain} (full download is {FileUtil.FormatSize(plan.FullSize)}, {saved}% saved).";
     }
 
+    private static string DescribeComponents(IEnumerable<string> ids) =>
+        string.Join(", ", ids.Select(id => TemplateComponents.Find(id)?.Name ?? id));
+
     [RelayCommand]
     private Task InstallAsync() =>
-        SelectedRelease is { } item ? InstallPackagesAsync(item, MissingPackages(item, _settings.InstallExportTemplates)) : Task.CompletedTask;
+        SelectedRelease is { } item ? InstallPackagesAsync(item, MissingPackages(item)) : Task.CompletedTask;
 
     [RelayCommand]
     private Task InstallTemplatesAsync() =>
-        SelectedRelease is { CanInstallTemplates: true } item ? InstallPackagesAsync(item, [PackageKinds.ExportTemplates]) : Task.CompletedTask;
+        SelectedRelease is { CanInstallTemplates: true } item
+            ? InstallPackagesAsync(item, [(PackageKinds.ExportTemplates, _settings.TemplateComponents)])
+            : Task.CompletedTask;
 
     [RelayCommand]
     private Task UpdateToLatestAsync()
@@ -196,19 +212,26 @@ public partial class MainViewModel : ViewModelBase
         if (latest is null)
             return Task.CompletedTask;
         SelectedRelease = latest;
-        return InstallPackagesAsync(latest, MissingPackages(latest, _settings.InstallExportTemplates));
+        // Updates keep the template platforms of the newest installed templates, so deltas from them can be used.
+        var templates = _library.List()
+            .Where(b => b.HasTemplates)
+            .Select(b => b.Packages[PackageKinds.ExportTemplates])
+            .OrderByDescending(p => p.InstalledAt)
+            .FirstOrDefault();
+        bool includeTemplates = _settings.InstallExportTemplates || templates is not null;
+        return InstallPackagesAsync(latest, MissingPackages(latest, includeTemplates, templates is null ? _settings.TemplateComponents : templates.Components));
     }
 
-    private async Task InstallPackagesAsync(ReleaseItemViewModel item, List<string> packages)
+    private async Task InstallPackagesAsync(ReleaseItemViewModel item, List<(string Package, IReadOnlyList<string>? Components)> packages)
     {
         if (IsBusy || packages.Count == 0)
             return;
         await RunAsync($"Installing {item.Tag}…", async token =>
         {
             var replacedBases = new HashSet<string>();
-            foreach (var package in packages)
+            foreach (var (package, components) in packages)
             {
-                var plan = await _installer.PlanAsync(item.Release, package, _releases, _settings.UseDeltaUpdates, token)
+                var plan = await _installer.PlanAsync(item.Release, package, _releases, _settings.UseDeltaUpdates, components, token)
                     ?? throw new InvalidOperationException($"Release {item.Tag} has no {package} asset.");
                 var progress = new Progress<InstallProgress>(ReportProgress);
                 await _installer.InstallAsync(item.Release, plan, _releases, progress, token);
@@ -270,11 +293,125 @@ public partial class MainViewModel : ViewModelBase
         {
             var dest = await Task.Run(() => EditorLauncher.SyncExportTemplates(build));
             StatusText = dest is null ? "Export templates are already installed in Godot." : $"Export templates copied to {dest}.";
+            UpdateSyncedTemplatesText(SelectedRelease);
         }
         catch (Exception e)
         {
             StatusText = $"Couldn't copy the export templates: {e.Message}";
         }
+    }
+
+    private async Task LoadTemplateComponentsAsync(ReleaseItemViewModel? item)
+    {
+        if (item is null || item.TemplateComponentsLoaded || !item.HasTemplatesAsset)
+            return;
+        item.TemplateStatusText = "Reading the list of export templates…";
+        try
+        {
+            var components = await _installer.GetTemplateComponentsAsync(item.Release);
+            item.SetTemplateComponents(components.Select(c => (c.Component, (long?)c.Size)));
+        }
+        catch (Exception e) when (e is HttpRequestException or IOException or InvalidDataException)
+        {
+            // Without the file list, offer every platform. Installing then downloads the whole archive if needed.
+            item.SetTemplateComponents(TemplateComponents.All.Select(c => (c, (long?)null)));
+            item.TemplateStatusText = $"Couldn't read the export templates of {item.Tag}, sizes are unknown: {e.Message}";
+        }
+    }
+
+    private void UpdateSyncedTemplatesText(ReleaseItemViewModel? item)
+    {
+        if (item is null)
+            return;
+        item.CanRemoveSyncedTemplates = false;
+        if (item.Build is not { HasTemplates: true } build)
+        {
+            item.SyncedTemplatesText = "";
+            return;
+        }
+        try
+        {
+            string? tag = EditorLauncher.SyncedTemplatesTag(build);
+            item.CanRemoveSyncedTemplates = !string.IsNullOrEmpty(tag);
+            item.SyncedTemplatesText = tag switch
+            {
+                null => "Godot has no export templates for this version yet.",
+                "" => "Godot has export templates for this version that the launcher didn't install.",
+                _ when tag == build.Tag => "Godot uses these export templates.",
+                _ => $"Godot uses the export templates of {tag} for this version.",
+            };
+        }
+        catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException)
+        {
+            item.SyncedTemplatesText = $"Couldn't check Godot's export templates: {e.Message}";
+        }
+    }
+
+    /// <summary>Downloads the checked template platforms of the selected build and removes the unchecked ones.</summary>
+    [RelayCommand]
+    private async Task ApplyTemplatesAsync()
+    {
+        if (IsBusy || SelectedRelease is not { } item)
+            return;
+        var components = item.SelectedTemplateComponents;
+        if (!item.HasTemplates)
+        {
+            if (components.Count > 0)
+                await InstallPackagesAsync(item, [(PackageKinds.ExportTemplates, components)]);
+            return;
+        }
+
+        await RunAsync($"Updating the export templates of {item.Tag}…", async token =>
+        {
+            var build = item.Build!;
+            bool synced = EditorLauncher.SyncedTemplatesTag(build) == build.Tag;
+            if (components.Count == 0)
+            {
+                if (synced)
+                    EditorLauncher.RemoveSyncedTemplates(build);
+                await Task.Run(() => _library.RemovePackage(build, PackageKinds.ExportTemplates), token);
+            }
+            else
+            {
+                build = await _installer.SetTemplateComponentsAsync(item.Release, components, _releases, _settings.UseDeltaUpdates,
+                    new Progress<InstallProgress>(ReportProgress), token);
+                // Keep Godot's copy in step with the build.
+                if (synced)
+                    await Task.Run(() => EditorLauncher.SyncExportTemplates(build), token);
+            }
+            RefreshInstalledState();
+            StatusText = components.Count == 0
+                ? $"Removed the export templates of {item.Tag}."
+                : $"Export templates of {item.Tag}: {DescribeComponents(components)}.";
+        });
+    }
+
+    [RelayCommand]
+    private void ResetTemplateSelection() => SelectedRelease?.ResetTemplateSelection();
+
+    [RelayCommand]
+    private void SelectAllTemplates(string? select)
+    {
+        foreach (var component in SelectedRelease?.TemplateComponents ?? [])
+            component.IsSelected = select == "true";
+    }
+
+    [RelayCommand]
+    private void RemoveSyncedTemplates()
+    {
+        if (SelectedRelease?.Build is not { HasTemplates: true } build)
+            return;
+        try
+        {
+            StatusText = EditorLauncher.RemoveSyncedTemplates(build)
+                ? "Removed the export templates from Godot's folder."
+                : "Those export templates weren't installed by the launcher, so they were left alone.";
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            StatusText = $"Couldn't remove the export templates: {e.Message}";
+        }
+        UpdateSyncedTemplatesText(SelectedRelease);
     }
 
     [RelayCommand]
