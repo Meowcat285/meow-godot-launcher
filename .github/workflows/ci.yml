@@ -189,7 +189,6 @@ jobs:
           identity="$(security find-identity -v -p codesigning "${keychain}" \
             | awk -v name="\"${SIGNING_IDENTITY}" 'index($0, name) { print $2; exit }')"
           if [[ -z "${identity}" ]]; then
-            security find-identity -p codesigning "${keychain}"
             echo "::error::MACOS_CERTIFICATE_P12_BASE64 holds no \"${SIGNING_IDENTITY}\" certificate with its private key."
             exit 1
           fi
