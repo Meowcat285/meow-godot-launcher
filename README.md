@@ -33,8 +33,9 @@ Each one is a single self-contained executable, no .NET installation needed.
 | macOS (Intel) | `MeowGodotLauncher-osx-x64.zip` |
 | Linux (x64) | `MeowGodotLauncher-linux-x64.tar.gz` |
 
-The macOS app isn't notarized, so the first time, right-click it and choose **Open**, or run
-`xattr -d com.apple.quarantine "Meow Godot Launcher.app"`.
+The macOS app is signed with a Developer ID and notarized by Apple, so it opens like any other downloaded app.
+(Releases made before signing was set up aren't: for those, right-click the app and choose **Open** the first time,
+or run `xattr -d com.apple.quarantine "Meow Godot Launcher.app"`.)
 
 Builds are stored in `%LOCALAPPDATA%\MeowGodotLauncher` on Windows, `~/Library/Application Support/MeowGodotLauncher`
 on macOS, and `~/.local/share/meow-godot-launcher` on Linux. The library folder can be changed in Settings.
@@ -122,7 +123,63 @@ dotnet publish src/MeowGodotLauncher -c Release -r linux-x64 -o publish   # or w
 ```
 
 To release, run the **CI** workflow by hand (Actions → CI → Run workflow) with the version to publish. It builds
-all platforms from the selected branch and publishes them as a GitHub release tagged `v<version>`.
+all platforms from the selected branch and, once a reviewer approves the `release` environment, publishes them as a
+GitHub release tagged `v<version>`.
+
+### macOS signing and notarization
+
+Every push to `main` and every release run signs the macOS apps with a Developer ID (hardened runtime, with the
+entitlements in `packaging/macos/MeowGodotLauncher.entitlements`), notarizes them with Apple and staples the ticket.
+Pull requests are never signed and their workflows can't read the signing secrets. When none of the secrets are set,
+the step is skipped and the apps keep their ad-hoc signature; when only some are set, the job fails.
+
+Two [environments](https://docs.github.com/actions/deployment/targeting-different-environments/managing-environments-for-deployment)
+are used (Settings → Environments → New environment):
+
+| Environment | Used by | Settings |
+| --- | --- | --- |
+| `macos-signing` | The *Sign and notarize* jobs | Deployment branches: *Selected branches*, add `main`. No required reviewers. Holds the secrets below. |
+| `release` | The *Release* job | Required reviewers: yourself (leave *Prevent self-review* off). Deployment branches: `main`. No secrets. |
+
+With `main` as the only deployment branch, releases can only be made from `main`.
+
+Secrets of the `macos-signing` environment:
+
+| Secret | What it is |
+| --- | --- |
+| `MACOS_CERTIFICATE_P12_BASE64` | Your *Developer ID Application* certificate and its private key, exported as `.p12`, base64 encoded. |
+| `MACOS_CERTIFICATE_PASSWORD` | The password chosen when exporting the `.p12`. |
+| `APPLE_API_KEY_P8_BASE64` | An App Store Connect API key (`AuthKey_<id>.p8`), base64 encoded. |
+| `APPLE_API_KEY_ID` | The key's ID, like `2X9R4HXF34`. |
+| `APPLE_API_ISSUER_ID` | The issuer ID shown above the key list, a UUID. |
+
+Optionally, the repository variable `MACOS_SIGNING_IDENTITY` picks a certificate by name (default
+`Developer ID Application`).
+
+To create them, on a Mac:
+
+1. **Certificate.** Only the Apple Developer account holder can create one. In Xcode → Settings → Accounts → your
+   team → Manage Certificates, click **+** and pick *Developer ID Application* (or create it at
+   [developer.apple.com](https://developer.apple.com/account/resources/certificates/list) from a certificate
+   signing request). Then in Keychain Access, under *My Certificates*, right-click
+   *Developer ID Application: …* (it must show the private key under it), choose **Export**, save it as
+   `certificate.p12` and choose a password.
+2. **API key.** In [App Store Connect](https://appstoreconnect.apple.com/access/integrations/api) → Users and Access
+   → Integrations → App Store Connect API → Team Keys, generate a key with the *Developer* role. Download the `.p8`
+   (it can only be downloaded once) and note the key ID and the issuer ID.
+3. **Secrets.** Paste them in Settings → Environments → `macos-signing` → Add environment secret, or with the
+   [GitHub CLI](https://cli.github.com/), which keeps them out of your clipboard and shell history:
+
+   ```sh
+   repo=Meowcat285/meow-godot-launcher
+   base64 -i certificate.p12 | gh secret set MACOS_CERTIFICATE_P12_BASE64 --env macos-signing --repo $repo
+   gh secret set MACOS_CERTIFICATE_PASSWORD --env macos-signing --repo $repo    # prompts for the value
+   base64 -i AuthKey_XXXXXXXXXX.p8 | gh secret set APPLE_API_KEY_P8_BASE64 --env macos-signing --repo $repo
+   gh secret set APPLE_API_KEY_ID --env macos-signing --repo $repo
+   gh secret set APPLE_API_ISSUER_ID --env macos-signing --repo $repo
+   ```
+
+   Then delete `certificate.p12` and keep the `.p8` somewhere safe, or delete it too.
 
 ### Layout
 
