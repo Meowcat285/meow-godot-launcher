@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Hardened runtime exceptions the self-contained .NET app needs, used when CI signs with a Developer ID. -->
+<plist version="1.0">
+<dict>
+    <!-- The .NET runtime JIT-compiles code. -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <!-- The single-file executable extracts its native libraries (Skia, HarfBuzz, Avalonia.Native) to a cache
+         folder and loads them from there. They aren't signed with our team ID, so library validation would refuse them. -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+</dict>
+</plist>
