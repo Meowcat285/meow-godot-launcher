@@ -9,13 +9,11 @@
     <BuiltInComInteropSupport>false</BuiltInComInteropSupport>
   </PropertyGroup>
 
-  <!-- Release builds are published as single, self-contained executables (see .github/workflows/ci.yml). -->
-  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
-    <PublishSingleFile>true</PublishSingleFile>
-    <SelfContained>true</SelfContained>
-    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-    <PublishTrimmed>false</PublishTrimmed>
-    <DebugType>embedded</DebugType>
+  <!-- Release builds are published with Native AOT (see .github/workflows/ci.yml): a native executable with no JIT,
+       next to the native libraries Avalonia uses (Skia, HarfBuzz and, depending on the platform, ANGLE or Avalonia.Native). -->
+  <PropertyGroup>
+    <PublishAot>true</PublishAot>
+    <IsAotCompatible>true</IsAotCompatible>
   </PropertyGroup>
 
   <ItemGroup>

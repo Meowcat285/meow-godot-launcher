@@ -22,7 +22,8 @@ them up to date with **delta patches**, so updating a build downloads only what 
 ## Download
 
 Grab the archive for your platform from the [releases](https://github.com/Meowcat285/meow-godot-launcher/releases).
-Each one is a single self-contained executable, no .NET installation needed.
+Each one is a natively compiled (Native AOT) executable with the few native libraries it uses, no .NET installation
+needed.
 
 | Platform | Asset |
 | --- | --- |
@@ -70,7 +71,9 @@ dotnet test MeowGodotLauncher.slnx
 dotnet run --project src/MeowGodotLauncher
 ```
 
-To produce a self-contained single-file executable like the released ones:
+To produce a Native AOT build like the released ones (this needs the platform's native toolchain: Visual Studio's C++
+tools on Windows, Xcode on macOS, clang on Linux; see
+[the prerequisites](https://learn.microsoft.com/dotnet/core/deploying/native-aot/#prerequisites)):
 
 ```sh
 dotnet publish src/MeowGodotLauncher -c Release -r linux-x64 -o publish   # or win-x64, osx-arm64, osx-x64
