@@ -178,12 +178,18 @@ jobs:
           security import "${RUNNER_TEMP}/certificate.p12" -k "${keychain}" -P "${MACOS_CERTIFICATE_PASSWORD}" \
             -T /usr/bin/codesign
           rm "${RUNNER_TEMP}/certificate.p12"
+          # The runners don't trust a Developer ID certificate without Apple's intermediate, which an exported
+          # .p12 usually doesn't include.
+          curl -fsSL --retry 3 -o "${RUNNER_TEMP}/DeveloperIDG2CA.cer" \
+            https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
+          security import "${RUNNER_TEMP}/DeveloperIDG2CA.cer" -k "${keychain}"
           security set-key-partition-list -S apple-tool:,apple: -s -k "${keychain_password}" "${keychain}" > /dev/null
           security list-keychains -d user -s "${keychain}" $(security list-keychains -d user | tr -d '"')
 
           identity="$(security find-identity -v -p codesigning "${keychain}" \
             | awk -v name="\"${SIGNING_IDENTITY}" 'index($0, name) { print $2; exit }')"
           if [[ -z "${identity}" ]]; then
+            security find-identity -p codesigning "${keychain}"
             echo "::error::MACOS_CERTIFICATE_P12_BASE64 holds no \"${SIGNING_IDENTITY}\" certificate with its private key."
             exit 1
           fi
