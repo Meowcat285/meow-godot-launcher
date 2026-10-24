@@ -85,25 +85,33 @@ jobs:
       - name: Package
         shell: bash
         run: |
-          mkdir -p artifacts
+          mkdir -p artifacts stage
           name="MeowGodotLauncher-${{ matrix.rid }}"
+          # Native AOT puts the executable next to the native libraries Avalonia loads (Skia, HarfBuzz, ...).
+          # Debug symbols (.pdb, .dbg, .dSYM) stay out of the package.
+          find publish -maxdepth 1 -type f ! -name '*.pdb' ! -name '*.dbg' -exec cp {} stage/ \;
+          files=($(ls stage))
           case "${{ matrix.rid }}" in
             win-*)
-              7z a "artifacts/${name}.zip" ./publish/MeowGodotLauncher.exe
+              (cd stage && 7z a "../artifacts/${name}.zip" "${files[@]}")
               ;;
             linux-*)
-              chmod +x publish/MeowGodotLauncher
-              tar -czf "artifacts/${name}.tar.gz" -C publish MeowGodotLauncher
+              chmod +x stage/MeowGodotLauncher
+              tar -czf "artifacts/${name}.tar.gz" -C stage "${files[@]}"
               ;;
             osx-*)
               app="Meow Godot Launcher.app"
               mkdir -p "${app}/Contents/MacOS" "${app}/Contents/Resources"
-              cp publish/MeowGodotLauncher "${app}/Contents/MacOS/"
+              cp stage/* "${app}/Contents/MacOS/"
               cp packaging/macos/MeowGodotLauncher.icns "${app}/Contents/Resources/"
               sed "s/\$VERSION/${VERSION}/g" packaging/macos/Info.plist > "${app}/Contents/Info.plist"
               # Ad-hoc signature, which Apple Silicon requires to run at all. Outside pull requests, the
               # sign-macos job replaces it with a Developer ID signature when the signing secrets are set.
-              codesign --force --deep --sign - "${app}"
+              # The libraries are signed first, since the app's signature covers them.
+              for lib in "${app}/Contents/MacOS/"*.dylib; do
+                codesign --force --sign - "${lib}"
+              done
+              codesign --force --sign - "${app}"
               ditto -c -k --keepParent "${app}" "artifacts/${name}.zip"
               ;;
           esac
@@ -194,9 +202,13 @@ jobs:
           fi
 
           ditto -x -k "unsigned/${ZIP}" app
-          codesign --force --options runtime --timestamp \
-            --entitlements packaging/macos/MeowGodotLauncher.entitlements \
-            --keychain "${keychain}" --sign "${identity}" "app/${APP}"
+          # Native AOT needs no hardened runtime exceptions, so nothing is signed with entitlements. The libraries
+          # carry the same team ID as the app, so library validation accepts them.
+          sign=(codesign --force --options runtime --timestamp --keychain "${keychain}" --sign "${identity}")
+          for lib in "app/${APP}/Contents/MacOS/"*.dylib; do
+            "${sign[@]}" "${lib}"
+          done
+          "${sign[@]}" "app/${APP}"
           codesign --verify --strict --verbose=2 "app/${APP}"
 
       - name: Notarize
