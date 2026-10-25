@@ -34,8 +34,13 @@ public sealed class DeltaApplierTests : IDisposable
         Assert.Contains(descriptor.Operations, o => o.Op == DeltaOps.Patch);
         Assert.Contains(descriptor.Operations, o => o.Op == DeltaOps.Add);
         Assert.Contains(descriptor.Operations, o => o.Op == DeltaOps.Copy && o.Source != o.Path);
-        var archive = Assert.Single(descriptor.Operations, o => o.Op == DeltaOps.Archive);
+        var archive = Assert.Single(descriptor.Operations, o => o.Path == "pkg/templates.zip" && o.Op == DeltaOps.Archive);
         Assert.Contains(archive.Entries!, o => o.Op == DeltaOps.Patch);
+        var apk = Assert.Single(descriptor.Operations, o => o.Path == "pkg/android.apk" && o.Op == DeltaOps.Archive);
+        Assert.Contains(apk.Entries!, o => o.Op == DeltaOps.Patch);
+        var androidSource = Assert.Single(descriptor.Operations, o => o.Path == "pkg/android_source.zip" && o.Op == DeltaOps.Archive);
+        var aar = Assert.Single(androidSource.Entries!, o => o.Path == "libs/lib.aar" && o.Op == DeltaOps.Archive);
+        Assert.Contains(aar.Entries!, o => o.Op == DeltaOps.Patch);
         Assert.Equal(Snapshot(expected), Snapshot(target));
         if (!OperatingSystem.IsWindows())
         {

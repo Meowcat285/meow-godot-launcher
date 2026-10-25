@@ -85,21 +85,21 @@ public static class DeltaApplier
     {
         if (op.Op == DeltaOps.Archive)
         {
-            ApplyArchive(delta, op, sourceDir, target, cancellationToken);
+            using var archiveFile = new FileStream(target, FileMode.Create, FileAccess.ReadWrite, FileShare.None, 1 << 16);
+            ApplyArchive(delta, op, SourcePath(sourceDir, op), archiveFile, cancellationToken);
             return;
         }
         using var file = new FileStream(target, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 16);
         WriteFile(delta, op, new DirectorySource(sourceDir), file, cancellationToken);
     }
 
-    private static void ApplyArchive(Func<string, Stream> delta, DeltaOperation op, string sourceDir, string target, CancellationToken cancellationToken)
+    private static void ApplyArchive(Func<string, Stream> delta, DeltaOperation op, string sourcePath, Stream output, CancellationToken cancellationToken)
     {
         if (op.Entries is null)
             throw new DeltaException($"Archive operation for \"{op.Path}\" has no entries.");
-        using var sourceArchive = ZipFile.OpenRead(SourcePath(sourceDir, op));
+        using var sourceArchive = ZipFile.OpenRead(sourcePath);
         using var source = new ArchiveSource(sourceArchive);
-        using var file = new FileStream(target, FileMode.Create, FileAccess.ReadWrite, FileShare.None, 1 << 16);
-        using var archive = new ZipArchive(file, ZipArchiveMode.Create);
+        using var archive = new ZipArchive(output, ZipArchiveMode.Create, leaveOpen: true);
 
         foreach (var entryOp in op.Entries)
         {
@@ -113,7 +113,18 @@ public static class DeltaApplier
             var entry = archive.CreateEntry(entryOp.Path, entryOp.Compressed ? CompressionLevel.Optimal : CompressionLevel.NoCompression);
             entry.ExternalAttributes = (entryOp.Mode | 0x8000) << 16; // S_IFREG
             using var stream = entry.Open();
-            WriteFile(delta, entryOp, source, stream, cancellationToken);
+            if (entryOp.Op != DeltaOps.Archive)
+            {
+                WriteFile(delta, entryOp, source, stream, cancellationToken);
+                continue;
+            }
+            // Archives inside archives, like the AARs in the Android templates, are rebuilt the same way, in a file:
+            // zips written to a stream that can't seek use data descriptors, which not all readers accept.
+            string built = source.NewTempFile();
+            using (var builtFile = new FileStream(built, FileMode.Create, FileAccess.ReadWrite, FileShare.None, 1 << 16))
+                ApplyArchive(delta, entryOp, source.GetFile(entryOp), builtFile, cancellationToken);
+            using var builtStream = File.OpenRead(built);
+            builtStream.CopyTo(stream);
         }
     }
 
@@ -207,10 +218,16 @@ public static class DeltaApplier
 
         public string GetFile(DeltaOperation op)
         {
-            Directory.CreateDirectory(_temp);
-            string path = Path.Combine(_temp, (_count++).ToString());
+            string path = NewTempFile();
             Find(op).ExtractToFile(path);
             return path;
+        }
+
+        /// <summary>A path for a temporary file, deleted along with the source.</summary>
+        public string NewTempFile()
+        {
+            Directory.CreateDirectory(_temp);
+            return Path.Combine(_temp, (_count++).ToString());
         }
 
         public void Dispose()

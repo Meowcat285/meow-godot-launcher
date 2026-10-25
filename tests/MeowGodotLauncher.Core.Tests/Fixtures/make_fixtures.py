@@ -45,6 +45,22 @@ def nested(path, big, extra):
             zf.writestr(name, data, compress_type=zipfile.ZIP_DEFLATED)
 nested(old / "pkg/templates.zip", old_exe, {})
 nested(new / "pkg/templates.zip", new_exe, {"sub/new.txt": b"added inside the archive\n"})
+# APKs are patched the same way, and so are archives inside archives, like the AARs in `android_source.zip`.
+nested(old / "pkg/android.apk", old_exe[::3], {}); nested(new / "pkg/android.apk", new_exe[::3], {})
+for root, exe in ((old, old_exe), (new, new_exe)):
+    nested(work / "aar" / root.name / "lib.aar", exe[1::3], {})
+    nested(root / "pkg/android_source.zip", b"gradle", {"libs/lib.aar": (work / "aar" / root.name / "lib.aar").read_bytes()})
+
+def build_delta(package, old_tag, old_dir, old_files, new_tag, new_dir, new_files, work, out, jobs):
+    # Finishing a delta deletes the old folder, which is still needed to make the fixtures.
+    old_copy = work / f"{old_dir.name}-copy"
+    shutil.copytree(old_dir, old_copy)
+    state = PackageState({"size": 1 << 62}, new_dir, {"deltas": []})
+    progress = Progress(new_tag, out)
+    with ProcessPoolExecutor(max_workers=jobs, mp_context=multiprocessing.get_context("fork")) as pool:
+        progress.add(start_delta(pool, state, package, old_tag, old_copy, old_files, new_files, work))
+        progress.run()
+    return out / f"{package}.from-{old_tag}.mgdelta"
 
 def scan(root):
     files = {}
