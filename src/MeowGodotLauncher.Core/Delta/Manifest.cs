@@ -120,8 +120,8 @@ public static class DeltaOps
     public const string Add = "add";
     /// <summary>
     /// Rebuild a zip archive from the <see cref="DeltaOperation.Entries"/> operations, applied to the entries of the
-    /// <see cref="DeltaOperation.Source"/> archive. The result isn't byte-identical to the original, so only its
-    /// entries are verified.
+    /// <see cref="DeltaOperation.Source"/> archive, which can themselves be archive operations. The result isn't
+    /// byte-identical to the original, so only its entries are verified.
     /// </summary>
     public const string Archive = "archive";
     /// <summary>A folder entry of an archive.</summary>
