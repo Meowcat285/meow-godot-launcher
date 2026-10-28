@@ -17,10 +17,11 @@ on:
         default: false
 
 concurrency:
-  # Release runs on a branch don't overlap, so the version picked by the version job stays free until the release.
-  # A newer push replaces a release still waiting for approval.
-  group: ${{ github.workflow }}|${{ github.ref }}
-  cancel-in-progress: true
+  # Runs that can release (pushes and manual runs) share one group and are never cancelled, so they don't overlap:
+  # the version picked by the version job stays free until the release, and an approved release always finishes.
+  # A run waiting in the queue is replaced by a newer one. Pull request runs are cancelled by newer pushes.
+  group: ${{ github.workflow }}|${{ github.event_name == 'pull_request' && github.ref || 'release' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -41,6 +42,8 @@ jobs:
     steps:
       - name: Determine version
         id: version
+        # Explicitly bash, for pipefail: a failed tag lookup must not fall back to 0.0.1.
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           # Passed through the environment so the input is never interpreted as script.
@@ -56,7 +59,7 @@ jobs:
               | sed -n 's|^refs/tags/v\([0-9]\+\.[0-9]\+\.[0-9]\+\)$|\1|p' \
               | sort -V | tail -n 1)"
             IFS=. read -r major minor patch <<< "${last:-0.0.0}"
-            version="${major}.${minor}.$(( patch + 1 ))"
+            version="${major}.${minor}.$(( 10#${patch} + 1 ))"
           fi
           if ! [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
             echo "::error::Version \"${version}\" isn't a version number like 1.2.0."
