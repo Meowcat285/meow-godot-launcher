@@ -138,7 +138,12 @@ public sealed class LauncherUpdater
     {
         Directory.CreateDirectory(destination);
         // All of them keep the Unix permissions of the files, which the executable needs.
-        if (OperatingSystem.IsMacOS())
+        if (archive.EndsWith(".tar.gz", StringComparison.Ordinal))
+        {
+            using var gzip = new GZipStream(File.OpenRead(archive), CompressionMode.Decompress);
+            TarFile.ExtractToDirectory(gzip, destination, overwriteFiles: false);
+        }
+        else if (OperatingSystem.IsMacOS())
         {
             // The macOS packages are made with ditto, which can store extended attributes as extra "._" files in the
             // zip. Extracting them with anything else would add those files to the signed bundle and break it.
@@ -147,11 +152,6 @@ public sealed class LauncherUpdater
             ditto.WaitForExit();
             if (ditto.ExitCode != 0)
                 throw new IOException($"Couldn't extract {Path.GetFileName(archive)} (ditto exited with {ditto.ExitCode}).");
-        }
-        else if (archive.EndsWith(".tar.gz", StringComparison.Ordinal))
-        {
-            using var gzip = new GZipStream(File.OpenRead(archive), CompressionMode.Decompress);
-            TarFile.ExtractToDirectory(gzip, destination, overwriteFiles: false);
         }
         else
         {
