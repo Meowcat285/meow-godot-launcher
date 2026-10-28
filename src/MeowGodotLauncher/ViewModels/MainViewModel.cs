@@ -115,7 +115,7 @@ public partial class MainViewModel : ViewModelBase
             _launcherUpdate = await _launcherUpdater.CheckAsync();
             LauncherUpdateText = _launcherUpdate is { } update ? $"Meow Godot Launcher {update.Release.Tag} is available." : null;
         }
-        catch (Exception e) when (e is HttpRequestException or IOException)
+        catch (Exception e) when (e is HttpRequestException or IOException or System.Text.Json.JsonException)
         {
             // Not worth bothering about, the next start checks again.
         }

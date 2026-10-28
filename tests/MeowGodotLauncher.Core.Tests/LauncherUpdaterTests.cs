@@ -74,8 +74,24 @@ public sealed class LauncherUpdaterTests : IDisposable
     }
 
     [Fact]
+    public void PutsBackFilesOfAnInterruptedUpdate()
+    {
+        string install = Path.Combine(_root, "install");
+        Directory.CreateDirectory(install);
+        File.WriteAllText(Path.Combine(install, "MeowGodotLauncher" + LauncherUpdater.OldSuffix), "old");
+
+        LauncherUpdater.CleanUp(install);
+
+        Assert.Equal("old", File.ReadAllText(Path.Combine(install, "MeowGodotLauncher")));
+        Assert.Single(Directory.EnumerateFiles(install));
+    }
+
+    // App bundles are only replaced as a whole on macOS.
+    [Fact]
     public void ReplacesTheAppBundle()
     {
+        if (!OperatingSystem.IsMacOS())
+            return;
         string bundle = Path.Combine(_root, LauncherUpdater.MacAppName);
         Directory.CreateDirectory(Path.Combine(bundle, "Contents"));
         File.WriteAllText(Path.Combine(bundle, "Contents", "Info.plist"), "old");

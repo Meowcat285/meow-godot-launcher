@@ -29,6 +29,8 @@ public sealed class LauncherUpdater
 
     private readonly GitHubReleaseClient _client;
     private readonly string _workDir;
+    // Taken before an update renames the running executable.
+    private readonly string _exeName = Path.GetFileName(Environment.ProcessPath ?? "MeowGodotLauncher");
 
     /// <param name="client">A client for <see cref="Owner"/>/<see cref="Repository"/>.</param>
     /// <param name="installDir">
@@ -52,7 +54,9 @@ public sealed class LauncherUpdater
     /// <summary>The release asset for this platform, or null on platforms without launcher releases.</summary>
     public string? PackageName { get; }
 
-    private bool IsBundle => InstallDir.EndsWith(".app", StringComparison.Ordinal);
+    private bool IsBundle => IsBundlePath(InstallDir);
+
+    private static bool IsBundlePath(string installDir) => OperatingSystem.IsMacOS() && installDir.EndsWith(".app", StringComparison.Ordinal);
 
     /// <summary>The package published for the platform the launcher runs on (see .github/workflows/ci.yml).</summary>
     public static string? HostPackageName()
@@ -205,21 +209,34 @@ public sealed class LauncherUpdater
         }
     }
 
-    /// <summary>Deletes what an earlier update replaced. Files still in use (an old process still exiting) are left for next time.</summary>
+    /// <summary>
+    /// Deletes what an earlier update replaced. Files still in use (an old process still exiting) are left for next time.
+    /// A replaced file whose new version is missing, from an update interrupted halfway, is put back instead.
+    /// </summary>
     public static void CleanUp(string installDir)
     {
+        IEnumerable<string> paths;
         try
         {
-            if (installDir.EndsWith(".app", StringComparison.Ordinal))
-            {
-                DeletePath(installDir + OldSuffix);
-                return;
-            }
-            foreach (var path in Directory.EnumerateFiles(installDir, "*" + OldSuffix))
-                File.Delete(path);
+            paths = IsBundlePath(installDir) ? [installDir + OldSuffix] : Directory.GetFiles(installDir, "*" + OldSuffix);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
+            return;
+        }
+        foreach (var old in paths.Where(Path.Exists))
+        {
+            try
+            {
+                string target = old[..^OldSuffix.Length];
+                if (Path.Exists(target))
+                    DeletePath(old);
+                else
+                    MovePath(old, target);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+            }
         }
     }
 
@@ -229,7 +246,7 @@ public sealed class LauncherUpdater
         var start = IsBundle
             // A new instance even though this one is still running.
             ? new ProcessStartInfo("open") { ArgumentList = { "-n", InstallDir } }
-            : new ProcessStartInfo(Path.Combine(InstallDir, Path.GetFileName(Environment.ProcessPath!)));
+            : new ProcessStartInfo(Path.Combine(InstallDir, _exeName));
         start.UseShellExecute = false;
         Process.Start(start)?.Dispose();
     }

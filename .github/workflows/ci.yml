@@ -114,7 +114,7 @@ jobs:
         shell: bash
         run: |
           dotnet publish src/MeowGodotLauncher/MeowGodotLauncher.csproj -c Release -r ${{ matrix.rid }} \
-            -p:Version="${VERSION}" -p:SelfUpdate=true -o publish
+            -p:Version="${VERSION}" -p:SelfUpdate=${{ needs.version.outputs.release }} -o publish
 
       - name: Package
         shell: bash
