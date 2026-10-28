@@ -3,12 +3,13 @@ on:
   push:
     branches: [main]
   pull_request:
-  # Running the workflow by hand publishes a release of the selected branch.
+  # Pushes to main publish a release with the next patch version. Running the workflow by hand publishes a
+  # release of the selected branch, with a version of your choice (for minor and major releases).
   workflow_dispatch:
     inputs:
       version:
-        description: Version to release, like 1.2.0. The release is tagged v<version>.
-        required: true
+        description: Version to release, like 1.2.0. The release is tagged v<version>. Empty for the next patch version.
+        required: false
         type: string
       prerelease:
         description: Mark the release as a pre-release
@@ -16,9 +17,11 @@ on:
         default: false
 
 concurrency:
-  # The event is part of the group so a push doesn't cancel a release run waiting for approval.
-  group: ${{ github.workflow }}|${{ github.event_name }}|${{ github.ref }}
-  cancel-in-progress: true
+  # Runs that can release (pushes and manual runs) share one group and are never cancelled, so they don't overlap:
+  # the version picked by the version job stays free until the release, and an approved release always finishes.
+  # A run waiting in the queue is replaced by a newer one. Pull request runs are cancelled by newer pushes.
+  group: ${{ github.workflow }}|${{ github.event_name == 'pull_request' && github.ref || 'release' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -28,6 +31,44 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: true
 
 jobs:
+  # Picks the version before the builds, since it's built into the app. Pull request builds use 0.1.0.
+  version:
+    name: Version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      release: ${{ steps.version.outputs.release }}
+    steps:
+      - name: Determine version
+        id: version
+        # Explicitly bash, for pipefail: a failed tag lookup must not fall back to 0.0.1.
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Passed through the environment so the input is never interpreted as script.
+          INPUT_VERSION: ${{ inputs.version }}
+          RELEASE: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref_name == github.event.repository.default_branch) }}
+        run: |
+          version="0.1.0"
+          if [[ -n "${INPUT_VERSION}" ]]; then
+            version="${INPUT_VERSION}"
+          elif [[ "${RELEASE}" == "true" ]]; then
+            # The next patch version after the highest vX.Y.Z tag.
+            last="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/git/matching-refs/tags/v" --jq '.[].ref' \
+              | sed -n 's|^refs/tags/v\([0-9]\+\.[0-9]\+\.[0-9]\+\)$|\1|p' \
+              | sort -V | tail -n 1)"
+            IFS=. read -r major minor patch <<< "${last:-0.0.0}"
+            version="${major}.${minor}.$(( 10#${patch} + 1 ))"
+          fi
+          if ! [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Version \"${version}\" isn't a version number like 1.2.0."
+            exit 1
+          fi
+          echo "Version: ${version} (release: ${RELEASE})"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "release=${RELEASE}" >> "$GITHUB_OUTPUT"
+
   test:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -50,8 +91,10 @@ jobs:
 
   publish:
     name: Publish (${{ matrix.rid }})
-    needs: test
+    needs: [test, version]
     runs-on: ${{ matrix.os }}
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
     strategy:
       fail-fast: false
       matrix:
@@ -69,18 +112,9 @@ jobs:
 
       - name: Publish
         shell: bash
-        env:
-          # Passed through the environment so the input is never interpreted as script.
-          INPUT_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || '0.1.0' }}
         run: |
-          version="${INPUT_VERSION}"
-          if ! [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-            echo "::error::Version \"${version}\" isn't a version number like 1.2.0."
-            exit 1
-          fi
           dotnet publish src/MeowGodotLauncher/MeowGodotLauncher.csproj -c Release -r ${{ matrix.rid }} \
-            -p:Version="${version}" -o publish
-          echo "VERSION=${version}" >> "$GITHUB_ENV"
+            -p:Version="${VERSION}" -o publish
 
       - name: Package
         shell: bash
@@ -105,8 +139,8 @@ jobs:
               cp stage/* "${app}/Contents/MacOS/"
               cp packaging/macos/MeowGodotLauncher.icns "${app}/Contents/Resources/"
               sed "s/\$VERSION/${VERSION}/g" packaging/macos/Info.plist > "${app}/Contents/Info.plist"
-              # Ad-hoc signature, which Apple Silicon requires to run at all. Outside pull requests, the
-              # sign-macos job replaces it with a Developer ID signature when the signing secrets are set.
+              # Ad-hoc signature, which Apple Silicon requires to run at all. For releases, the sign-macos job
+              # replaces it with a Developer ID signature when the signing secrets are set.
               # The libraries are signed first, since the app's signature covers them.
               for lib in "${app}/Contents/MacOS/"*.dylib; do
                 codesign --force --sign - "${lib}"
@@ -121,11 +155,24 @@ jobs:
           name: MeowGodotLauncher-${{ matrix.rid }}
           path: artifacts/*
 
+  # Waits for approval from the `release` environment's reviewer. It comes before signing so that only builds
+  # going into a release are notarized (Apple limits notarizations per day, shared with the Godot fork).
+  release-approval:
+    name: Release approval
+    needs: [version, publish]
+    if: needs.version.outputs.release == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: release
+    permissions: {}
+    steps:
+      - name: Approved
+        run: echo "Release v${{ needs.version.outputs.version }} approved."
+
   sign-macos:
     name: Sign and notarize (${{ matrix.rid }})
-    needs: publish
-    # Never on pull requests, so code from a pull request never runs next to the signing secrets.
-    if: github.event_name != 'pull_request'
+    # Only for releases, never for pull requests: code from a pull request never runs next to the signing secrets.
+    needs: release-approval
     runs-on: macos-latest
     # Holds the signing secrets. Limited to the main branch, without required reviewers.
     environment: macos-signing
@@ -211,9 +258,8 @@ jobs:
           "${sign[@]}" "app/${APP}"
           codesign --verify --strict --verbose=2 "app/${APP}"
 
-      # Only for releases: Apple limits how many notarization requests an account can make per day.
       - name: Notarize
-        if: env.SIGN == 'true' && github.event_name == 'workflow_dispatch'
+        if: env.SIGN == 'true'
         env:
           APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
@@ -250,7 +296,7 @@ jobs:
           security delete-keychain "${RUNNER_TEMP}/signing.keychain-db" || true
           rm -f "${RUNNER_TEMP}/AuthKey.p8" "${RUNNER_TEMP}/certificate.p12"
 
-      # Replaces the ad-hoc signed artifact, so the release picks up the signed (and there, notarized) app.
+      # Replaces the ad-hoc signed artifact, so the release picks up the signed and notarized app.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: env.SIGN == 'true'
         with:
@@ -260,11 +306,9 @@ jobs:
 
   release:
     name: Release
-    needs: [publish, sign-macos]
-    if: github.event_name == 'workflow_dispatch'
+    needs: [version, sign-macos]
+    if: needs.version.outputs.release == 'true'
     runs-on: ubuntu-24.04
-    # Requires approval from a reviewer before anything is published.
-    environment: release
     permissions:
       contents: write
     steps:
@@ -276,7 +320,7 @@ jobs:
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: v${{ inputs.version }}
+          TAG: v${{ needs.version.outputs.version }}
           PRERELEASE: ${{ inputs.prerelease && '--prerelease' || '' }}
         run: |
           # Creates the tag on the commit that was built.
