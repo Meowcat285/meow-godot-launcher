@@ -49,6 +49,10 @@ public sealed class ReleaseAsset
     [JsonPropertyName("browser_download_url")]
     public string DownloadUrl { get; set; } = "";
 
+    /// <summary>Checksum of the asset, like "sha256:&lt;hex&gt;". Missing for assets uploaded before GitHub added it.</summary>
+    [JsonPropertyName("digest")]
+    public string? Digest { get; set; }
+
     [JsonPropertyName("updated_at")]
     public DateTimeOffset? UpdatedAt { get; set; }
 }

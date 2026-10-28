@@ -16,6 +16,12 @@
     <IsAotCompatible>true</IsAotCompatible>
   </PropertyGroup>
 
+  <!-- Released packages update themselves from the launcher's releases (-p:SelfUpdate=true in .github/workflows/ci.yml).
+       Other builds don't, so a build made from source is never replaced by a release. -->
+  <PropertyGroup Condition="'$(SelfUpdate)' == 'true'">
+    <DefineConstants>$(DefineConstants);SELF_UPDATE</DefineConstants>
+  </PropertyGroup>
+
   <ItemGroup>
     <AvaloniaResource Include="Assets\**" />
   </ItemGroup>

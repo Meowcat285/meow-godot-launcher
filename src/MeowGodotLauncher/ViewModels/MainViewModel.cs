@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.Input;
 using MeowGodotLauncher.Core.Delta;
 using MeowGodotLauncher.Core.GitHub;
 using MeowGodotLauncher.Core.Library;
+using MeowGodotLauncher.Core.SelfUpdate;
 using MeowGodotLauncher.Core.Settings;
 using MeowGodotLauncher.Core.Util;
 
@@ -21,6 +22,8 @@ public partial class MainViewModel : ViewModelBase
     private IReadOnlyList<ReleaseInfo> _releases = [];
     private CancellationTokenSource? _operation;
     private CancellationTokenSource? _planning;
+    private LauncherUpdater? _launcherUpdater;
+    private LauncherUpdate? _launcherUpdate;
     private readonly Stopwatch _progressThrottle = Stopwatch.StartNew();
 
     public MainViewModel()
@@ -61,18 +64,92 @@ public partial class MainViewModel : ViewModelBase
 
     public bool HasUpdate => UpdateText is not null;
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasLauncherUpdate))]
+    public partial string? LauncherUpdateText { get; set; }
+
+    public bool HasLauncherUpdate => LauncherUpdateText is not null;
+
+    /// <summary>Closes the launcher, set by the app.</summary>
+    public Action? Shutdown { get; set; }
+
     private void CreateServices()
     {
         _library = new BuildLibrary(_settings.ResolvedLibraryPath);
         _client = new GitHubReleaseClient(Http, _settings.Owner, _settings.Repository, _settings.GitHubToken, LauncherPaths.Cache);
         _installer = new Installer(_library, _client, Http) { Log = message => StatusText = message };
+        _launcherUpdater = CreateLauncherUpdater();
         OnPropertyChanged(nameof(RepositoryText));
+    }
+
+    /// <summary>Null for builds that don't update themselves: only the released packages do (see the SelfUpdate property in the project).</summary>
+    private LauncherUpdater? CreateLauncherUpdater()
+    {
+#if SELF_UPDATE
+        if (LauncherUpdater.HostInstallDir() is not { } installDir || LauncherUpdater.HostPackageName() is not { } package)
+            return null;
+        var version = typeof(MainViewModel).Assembly.GetName().Version ?? new Version(0, 0, 0);
+        var client = new GitHubReleaseClient(Http, LauncherUpdater.Owner, LauncherUpdater.Repository, _settings.GitHubToken, LauncherPaths.Cache);
+        return new LauncherUpdater(client, installDir, Path.Combine(LauncherPaths.Cache, "launcher-update"),
+            new Version(version.Major, version.Minor, Math.Max(0, version.Build)), package);
+#else
+        return null;
+#endif
     }
 
     public async Task InitializeAsync()
     {
         _library.CleanStaging();
+        if (_launcherUpdater is not null)
+            LauncherUpdater.CleanUp(_launcherUpdater.InstallDir);
         await RefreshAsync();
+        await CheckLauncherUpdateAsync();
+    }
+
+    private async Task CheckLauncherUpdateAsync()
+    {
+        if (_launcherUpdater is null)
+            return;
+        try
+        {
+            _launcherUpdate = await _launcherUpdater.CheckAsync();
+            LauncherUpdateText = _launcherUpdate is { } update ? $"Meow Godot Launcher {update.Release.Tag} is available." : null;
+        }
+        catch (Exception e) when (e is HttpRequestException or IOException)
+        {
+            // Not worth bothering about, the next start checks again.
+        }
+    }
+
+    [RelayCommand]
+    private async Task UpdateLauncherAsync()
+    {
+        if (IsBusy || _launcherUpdater is not { } updater || _launcherUpdate is not { } update)
+            return;
+        await RunAsync($"Updating the launcher to {update.Release.Tag}…", async token =>
+        {
+            var progress = new Progress<long>(bytes => ReportProgress(new InstallProgress(
+                $"Downloading the launcher {update.Release.Tag}: {FileUtil.FormatSize(bytes)} of {FileUtil.FormatSize(update.Asset.Size)}",
+                (double)bytes / Math.Max(1, update.Asset.Size))));
+            try
+            {
+                await updater.InstallAsync(update, progress, token);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                StatusText = $"Can't write to {updater.InstallDir}. Download {update.Release.Tag} from the releases page instead.";
+                return;
+            }
+            updater.Restart();
+            Shutdown?.Invoke();
+        });
+    }
+
+    [RelayCommand]
+    private void OpenLauncherReleasePage()
+    {
+        if (_launcherUpdate?.Release.HtmlUrl is { } url)
+            Shell.Open(url);
     }
 
     partial void OnSelectedReleaseChanged(ReleaseItemViewModel? value)

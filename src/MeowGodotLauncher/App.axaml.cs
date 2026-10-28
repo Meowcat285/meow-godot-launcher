@@ -17,7 +17,7 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            var viewModel = new MainViewModel();
+            var viewModel = new MainViewModel { Shutdown = () => desktop.Shutdown() };
             desktop.MainWindow = new MainWindow { DataContext = viewModel };
             desktop.ShutdownRequested += (_, _) => viewModel.CancelCommand.Execute(null);
             _ = viewModel.InitializeAsync();
