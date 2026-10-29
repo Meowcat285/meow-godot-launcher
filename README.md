@@ -21,18 +21,23 @@ them up to date with **delta patches**, so updating a build downloads only what 
 
 ## Download
 
-Grab the archive for your platform from the [releases](https://github.com/Meowcat285/meow-godot-launcher/releases).
+Grab the download for your platform from the [latest release](https://github.com/Meowcat285/meow-godot-launcher/releases/latest).
 Each one is a natively compiled (Native AOT) executable with the few native libraries it uses, no .NET installation
 needed.
 
-| Platform | Asset |
+| Platform | Download |
 | --- | --- |
-| Windows (x64, also runs on Arm64) | `MeowGodotLauncher-win-x64.zip` |
-| macOS (Apple Silicon) | `MeowGodotLauncher-osx-arm64.zip` |
-| macOS (Intel) | `MeowGodotLauncher-osx-x64.zip` |
-| Linux (x64) | `MeowGodotLauncher-linux-x64.tar.gz` |
+| Windows (x64, also runs on Arm64) | `MeowGodotLauncher-win-x64-Setup.exe` (installer), or `MeowGodotLauncher-win-x64-Portable.zip` |
+| macOS (Apple Silicon) | `MeowGodotLauncher-osx-arm64-Portable.zip` |
+| macOS (Intel) | `MeowGodotLauncher-osx-x64-Portable.zip` |
+| Linux (x64) | `MeowGodotLauncher-linux-x64.AppImage` |
 
-The macOS app is signed and notarized, so it opens like any other downloaded app.
+The Windows installer needs no administrator rights and adds the launcher to the Start menu. On macOS, unzip the app
+and move it to Applications. It's signed and notarized, so it opens like any other downloaded app. On Linux, make the
+AppImage executable and run it.
+
+The launcher keeps itself up to date: when a new version is out, it offers to update and restart, downloading only
+what changed.
 
 ## Usage
 

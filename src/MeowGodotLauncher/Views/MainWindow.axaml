@@ -28,6 +28,16 @@
         <TabControl Padding="0">
             <TabItem Header="Builds">
                 <DockPanel>
+                    <!-- Launcher update banner -->
+                    <Border DockPanel.Dock="Top" IsVisible="{Binding HasLauncherUpdate}" Margin="12,8,12,0" Padding="12,8"
+                            CornerRadius="6" Background="{DynamicResource SystemAccentColor}">
+                        <Grid ColumnDefinitions="*,Auto,Auto">
+                            <TextBlock Text="{Binding LauncherUpdateText}" Foreground="White" VerticalAlignment="Center" FontWeight="SemiBold" />
+                            <Button Grid.Column="1" Content="What's new" Margin="0,0,8,0" Command="{Binding OpenLauncherReleasePageCommand}" />
+                            <Button Grid.Column="2" Content="Update and restart" Command="{Binding UpdateLauncherCommand}" IsEnabled="{Binding IsIdle}" />
+                        </Grid>
+                    </Border>
+
                     <!-- Update banner -->
                     <Border DockPanel.Dock="Top" IsVisible="{Binding HasUpdate}" Margin="12,8,12,0" Padding="12,8"
                             CornerRadius="6" Background="{DynamicResource SystemAccentColor}">
