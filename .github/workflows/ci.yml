@@ -123,11 +123,12 @@ jobs:
           echo "${HOME}/.dotnet/tools" >> "$GITHUB_PATH"
           # AppImages are made with mksquashfs.
           if [[ "${{ runner.os }}" == Linux ]]; then
+            sudo apt-get update
             sudo apt-get install -y squashfs-tools
           fi
 
       # For releases, the macOS packages are made again by the sign-macos job, signed and notarized when the signing
-      # secrets are set. These are ad-hoc signed.
+      # secrets are set. These aren't signed as a whole (only the executable is, ad-hoc, by the linker).
       - name: Package
         shell: bash
         env:

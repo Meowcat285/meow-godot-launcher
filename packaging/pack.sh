@@ -8,11 +8,11 @@ dir="$2"
 version="$3"
 shift 3
 
-# The previous release's full package, which the delta package is made against. The first Velopack release has none.
+# The previous release's full package, which the delta package is made against. When there's none (the first Velopack
+# release), this only warns.
 token=()
 [[ -n "${GH_TOKEN:-}" ]] && token=(--token "${GH_TOKEN}")
-vpk download github --repoUrl "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" --channel "${rid}" --outputDir releases "${token[@]}" \
-  || echo "::notice::No earlier Velopack release for ${rid}, so no delta package."
+vpk download github --repoUrl "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" --channel "${rid}" --outputDir releases "${token[@]}"
 
 # Each platform is its own channel, so its update packages don't mix with the other platforms' in a release.
 options=(--packId MeowGodotLauncher --packVersion "${version}" --packDir "${dir}" --packTitle "Meow Godot Launcher"
