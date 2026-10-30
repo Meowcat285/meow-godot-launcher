@@ -1,8 +1,12 @@
 name: CI
 on:
+  # Changes to only Markdown files and docs/ (the README's screenshot) don't need a build or a new release.
+  # Add `[skip ci]` to a commit message, or to a pull request title (it ends up in the merge commit), to skip any other push.
   push:
     branches: [main]
+    paths-ignore: ["**.md", "docs/**"]
   pull_request:
+    paths-ignore: ["**.md", "docs/**"]
   # Pushes to main publish a release with the next patch version. Running the workflow by hand publishes a
   # release of the selected branch, with a version of your choice (for minor and major releases).
   workflow_dispatch:
