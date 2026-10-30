@@ -1,3 +1,4 @@
+using MeowGodotLauncher.Core.GitHub;
 using MeowGodotLauncher.Core.Library;
 using MeowGodotLauncher.Core.Util;
 
@@ -27,6 +28,14 @@ public sealed class UtilTests
     [InlineData("a\\b", false)]
     [InlineData("", false)]
     public void ChecksSafeNames(string name, bool safe) => Assert.Equal(safe, FileUtil.IsSafeName(name));
+
+    [Theory]
+    [InlineData("2026.10.15", false, null)]
+    [InlineData("2026.10.15-claude-project-thread-emaowh.123", true, "claude-project-thread-emaowh")]
+    [InlineData("2026.10.15-a.b.1", true, null)]
+    [InlineData("v1.0-beta", true, null)]
+    public void ReadsPrereleaseBranches(string tag, bool prerelease, string? branch) =>
+        Assert.Equal(branch, new ReleaseInfo { Tag = tag, Prerelease = prerelease }.Branch);
 
     [Fact]
     public void SplitsArguments()

@@ -10,7 +10,7 @@ them up to date with **delta patches**, so updating a build downloads only what 
 
 ## Features
 
-- Browse releases of the fork, with their notes and commit.
+- Browse releases of the fork, with their notes and commit, or the pre-releases built from any of its branches.
 - Install any number of builds side by side, launch them, open their folder, remove them.
 - Delta updates from any installed build, chaining several releases when needed, with automatic fallback to the
   full download if anything doesn't check out.

@@ -20,6 +20,7 @@ public partial class MainViewModel : ViewModelBase
     private BuildLibrary _library = null!;
     private GitHubReleaseClient _client = null!;
     private Installer _installer = null!;
+    // All the releases and pre-releases, which deltas can go through. Only those of the selected branch are listed.
     private IReadOnlyList<ReleaseInfo> _releases = [];
     private CancellationTokenSource? _operation;
     private CancellationTokenSource? _planning;
@@ -34,6 +35,12 @@ public partial class MainViewModel : ViewModelBase
     }
 
     public ObservableCollection<ReleaseItemViewModel> Releases { get; } = [];
+
+    /// <summary>Releases of the default branch, then the branches that have pre-releases, most recently built first.</summary>
+    public ObservableCollection<BranchOption> Branches { get; } = [];
+
+    [ObservableProperty]
+    public partial BranchOption? SelectedBranch { get; set; }
 
     public SettingsViewModel Settings { get; } = new();
 
@@ -136,11 +143,41 @@ public partial class MainViewModel : ViewModelBase
             return;
         await RunAsync("Loading releases…", async _ =>
         {
-            var list = await _client.GetReleasesAsync(_settings.MaxReleases);
+            // As many as possible, since pre-releases of busy branches can push releases out of the first page.
+            var list = await _client.GetReleasesAsync(100);
             _releases = list.Releases;
+            ReloadBranches();
             ReloadItems();
-            StatusText = list.Warning ?? $"{_releases.Count} releases, {Releases.Count(r => r.IsInstalled)} installed.";
+            StatusText = list.Warning ?? $"{Releases.Count} releases, {Releases.Count(r => r.IsInstalled)} installed.";
         }, cancellable: false);
+    }
+
+    private void ReloadBranches()
+    {
+        Branches.Clear();
+        Branches.Add(new BranchOption(null));
+        foreach (var branch in _releases.Select(r => r.Branch).OfType<string>().Distinct())
+            Branches.Add(new BranchOption(branch));
+        // Keep a branch without pre-releases in the list, if it's the selected one.
+        if (_settings.Branch is { } selected && Branches.All(b => b.Branch != selected))
+            Branches.Add(new BranchOption(selected));
+        SelectedBranch = Branches.First(b => b.Branch == _settings.Branch);
+    }
+
+    partial void OnSelectedBranchChanged(BranchOption? value)
+    {
+        if (value is null || value.Branch == _settings.Branch)
+            return;
+        _settings.Branch = value.Branch;
+        try
+        {
+            _settings.Save();
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            StatusText = $"Couldn't save settings: {e.Message}";
+        }
+        ReloadItems();
     }
 
     /// <summary>Rebuilds the release list from <see cref="_releases"/> and the library, keeping the selection.</summary>
@@ -148,12 +185,16 @@ public partial class MainViewModel : ViewModelBase
     {
         string? selected = SelectedRelease?.Tag;
         var builds = _library.List().ToDictionary(b => b.Tag);
+        var releases = _releases
+            .Where(r => _settings.Branch is null ? !r.Prerelease : r.Branch == _settings.Branch)
+            .Take(_settings.MaxReleases)
+            .ToList();
 
         Releases.Clear();
-        for (int i = 0; i < _releases.Count; i++)
+        for (int i = 0; i < releases.Count; i++)
         {
-            var item = new ReleaseItemViewModel(_releases[i], i == 0) { DefaultTemplateComponents = _settings.TemplateComponents };
-            item.Build = builds.GetValueOrDefault(_releases[i].Tag);
+            var item = new ReleaseItemViewModel(releases[i], i == 0) { DefaultTemplateComponents = _settings.TemplateComponents };
+            item.Build = builds.GetValueOrDefault(releases[i].Tag);
             Releases.Add(item);
         }
         SelectedRelease = Releases.FirstOrDefault(r => r.Tag == selected) ?? Releases.FirstOrDefault(r => r.IsInstalled) ?? Releases.FirstOrDefault();
@@ -572,4 +613,10 @@ public partial class MainViewModel : ViewModelBase
             ProgressValue = 0;
         }
     }
+}
+
+/// <summary>An entry of the branch picker: a branch with pre-releases, or the releases of the default branch when null.</summary>
+public sealed record BranchOption(string? Branch)
+{
+    public override string ToString() => Branch ?? "Releases";
 }

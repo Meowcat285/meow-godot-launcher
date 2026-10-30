@@ -1,9 +1,10 @@
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 
 namespace MeowGodotLauncher.Core.GitHub;
 
 /// <summary>The subset of the GitHub REST API release object the launcher uses.</summary>
-public sealed class ReleaseInfo
+public sealed partial class ReleaseInfo
 {
     [JsonPropertyName("tag_name")]
     public string Tag { get; set; } = "";
@@ -33,6 +34,18 @@ public sealed class ReleaseInfo
     public List<ReleaseAsset> Assets { get; set; } = [];
 
     public ReleaseAsset? FindAsset(string name) => Assets.FirstOrDefault(a => a.Name == name);
+
+    /// <summary>
+    /// The branch a pre-release was built from, null for releases of the default branch. Pre-releases are named
+    /// <c>&lt;release name&gt;-&lt;branch&gt;.&lt;run number&gt;</c>, where anything but letters, digits and dashes in the
+    /// branch name is replaced by a dash (see <c>release-name</c> in the fork's <c>.github/workflows/runner.yml</c>).
+    /// </summary>
+    [JsonIgnore]
+    public string? Branch => Prerelease && PrereleaseTag().Match(Tag) is { Success: true } match ? match.Groups["branch"].Value : null;
+
+    // Must match `PRERELEASE_TAG` in the fork's `misc/scripts/generate_delta_patches.py`.
+    [GeneratedRegex(@"^\d+\.\d+\.\d+-(?<branch>[0-9A-Za-z-]+)\.\d+$")]
+    private static partial Regex PrereleaseTag();
 }
 
 public sealed class ReleaseAsset

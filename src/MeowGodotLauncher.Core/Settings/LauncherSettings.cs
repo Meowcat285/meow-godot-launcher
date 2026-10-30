@@ -16,6 +16,9 @@ public sealed class LauncherSettings
 
     public int MaxReleases { get; set; } = 50;
 
+    /// <summary>The branch whose pre-releases are listed (see <see cref="GitHub.ReleaseInfo.Branch"/>). Null for releases.</summary>
+    public string? Branch { get; set; }
+
     public bool UseDeltaUpdates { get; set; } = true;
 
     /// <summary>Also install export templates when installing a build.</summary>
