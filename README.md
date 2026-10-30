@@ -97,7 +97,7 @@ dotnet publish src/MeowGodotLauncher -c Release -r linux-x64 -o publish   # or w
 Deltas are generated in the fork by
 [`misc/scripts/generate_delta_patches.py`](https://github.com/Meowcat285/godot/blob/slop/misc/scripts/generate_delta_patches.py)
 and applied here by `src/MeowGodotLauncher.Core/Delta`. A delta holds one operation per file of the new package:
-copy an unchanged (or renamed) file from the installed build, patch a changed file (bsdiff, compressed with zstd),
+copy an unchanged (or renamed) file from the installed build, patch a changed file (bsdiff, or xdelta3 for pre-releases, compressed with zstd),
 or add a new one. Zip archives inside a package are patched entry by entry and rebuilt by the launcher.
 
 The format is defined on both sides, so keep them in sync and bump the `format` number on incompatible changes.

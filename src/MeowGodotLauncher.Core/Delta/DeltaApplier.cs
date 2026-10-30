@@ -146,6 +146,12 @@ public static class DeltaApplier
                 BsPatch.Apply(patch, source.GetFile(op), output, op.Size, cancellationToken);
                 break;
             }
+            case DeltaOps.XPatch:
+            {
+                using var patch = OpenEntry(delta, op);
+                VcdiffDecoder.Apply(patch, source.GetFile(op), output, op.Size, cancellationToken);
+                break;
+            }
             case DeltaOps.Add:
             {
                 using var entry = OpenEntry(delta, op);

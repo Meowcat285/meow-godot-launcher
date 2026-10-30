@@ -116,6 +116,8 @@ public static class DeltaOps
     public const string Copy = "copy";
     /// <summary>Decompress <see cref="DeltaOperation.Entry"/> using <see cref="DeltaOperation.Source"/> as reference (bsdiff in a zstd stream, see <see cref="BsPatch"/>).</summary>
     public const string Patch = "patch";
+    /// <summary>Like <see cref="Patch"/>, with a VCDIFF patch made by xdelta3 in the zstd stream (see <see cref="VcdiffDecoder"/>).</summary>
+    public const string XPatch = "xpatch";
     /// <summary>Decompress <see cref="DeltaOperation.Entry"/> as a regular zstd stream.</summary>
     public const string Add = "add";
     /// <summary>

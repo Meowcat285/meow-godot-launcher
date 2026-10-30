@@ -50,6 +50,32 @@ public sealed class DeltaApplierTests : IDisposable
     }
 
     [Fact]
+    public void AppliesXdeltaDeltaGeneratedByTheFork()
+    {
+        var (old, expected) = ExtractFixtures();
+        string target = Path.Combine(_dir, "target");
+
+        var descriptor = DeltaApplier.Apply(Fixture("editor-linux-x86_64.from-1.0.xpatch.mgdelta"), old, target);
+
+        Assert.Contains(descriptor.Operations, o => o.Op == DeltaOps.XPatch);
+        Assert.DoesNotContain(descriptor.Operations, o => o.Op == DeltaOps.Patch);
+        Assert.Equal(Snapshot(expected), Snapshot(target));
+    }
+
+    [Fact]
+    public void RejectsModifiedSourceWithXdelta()
+    {
+        var (old, _) = ExtractFixtures();
+        string exe = Path.Combine(old, "pkg", "bin", "godot.linuxbsd.editor.x86_64");
+        var bytes = File.ReadAllBytes(exe);
+        bytes[1000] ^= 0xFF;
+        File.WriteAllBytes(exe, bytes);
+
+        var e = Assert.Throws<DeltaException>(() => DeltaApplier.Apply(Fixture("editor-linux-x86_64.from-1.0.xpatch.mgdelta"), old, Path.Combine(_dir, "target")));
+        Assert.Contains("godot.linuxbsd.editor.x86_64", e.Message);
+    }
+
+    [Fact]
     public void RejectsModifiedSource()
     {
         var (old, _) = ExtractFixtures();

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Regenerates the fixtures with the delta generator of the Godot fork:
 #   python3 make_fixtures.py <godot>/misc/scripts/generate_delta_patches.py . <scratch folder>
-# Requires the `bsdiff4` and `zstandard` packages.
+# Requires the `bsdiff4` and `zstandard` packages, and the `xdelta3` CLI.
 
 import os
 import random
@@ -51,14 +51,14 @@ for root, exe in ((old, old_exe), (new, new_exe)):
     nested(work / "aar" / root.name / "lib.aar", exe[1::3], {})
     nested(root / "pkg/android_source.zip", b"gradle", {"libs/lib.aar": (work / "aar" / root.name / "lib.aar").read_bytes()})
 
-def build_delta(package, old_tag, old_dir, old_files, new_tag, new_dir, new_files, work, out, jobs):
+def build_delta(package, old_tag, old_dir, old_files, new_tag, new_dir, new_files, work, out, jobs, xdelta=False):
     # Finishing a delta deletes the old folder, which is still needed to make the fixtures.
     old_copy = work / f"{old_dir.name}-copy"
     shutil.copytree(old_dir, old_copy)
     state = PackageState({"size": 1 << 62}, new_dir, {"deltas": []})
     progress = Progress(new_tag, out)
     with ProcessPoolExecutor(max_workers=jobs, mp_context=multiprocessing.get_context("fork")) as pool:
-        progress.add(start_delta(pool, state, package, old_tag, old_copy, old_files, new_files, work))
+        progress.add(start_delta(pool, state, package, old_tag, old_copy, old_files, new_files, work, xdelta))
         progress.run()
     return out / f"{package}.from-{old_tag}.mgdelta"
 
@@ -71,6 +71,10 @@ def scan(root):
     return files
 out.mkdir(parents=True, exist_ok=True)
 delta = build_delta("editor-linux-x86_64", "1.0", old, scan(old), "1.1", new, scan(new), work, out, 1)
+print(delta, delta.stat().st_size)
+# The same delta made with xdelta3, as for pre-releases.
+delta = build_delta("editor-linux-x86_64", "1.0", old, scan(old), "1.1", new, scan(new), work, work, 1, xdelta=True)
+delta = delta.rename(out / "editor-linux-x86_64.from-1.0.xpatch.mgdelta")
 shutil.make_archive(str(out / "old"), "zip", old)
 shutil.make_archive(str(out / "new"), "zip", new)
 print(delta, delta.stat().st_size)
