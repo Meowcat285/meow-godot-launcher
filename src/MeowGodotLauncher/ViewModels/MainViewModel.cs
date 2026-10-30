@@ -7,6 +7,8 @@ using MeowGodotLauncher.Core.GitHub;
 using MeowGodotLauncher.Core.Library;
 using MeowGodotLauncher.Core.Settings;
 using MeowGodotLauncher.Core.Util;
+using Velopack;
+using Velopack.Sources;
 
 namespace MeowGodotLauncher.ViewModels;
 
@@ -21,6 +23,8 @@ public partial class MainViewModel : ViewModelBase
     private IReadOnlyList<ReleaseInfo> _releases = [];
     private CancellationTokenSource? _operation;
     private CancellationTokenSource? _planning;
+    private UpdateManager? _launcherUpdater;
+    private UpdateInfo? _launcherUpdate;
     private readonly Stopwatch _progressThrottle = Stopwatch.StartNew();
 
     public MainViewModel()
@@ -61,11 +65,19 @@ public partial class MainViewModel : ViewModelBase
 
     public bool HasUpdate => UpdateText is not null;
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasLauncherUpdate))]
+    public partial string? LauncherUpdateText { get; set; }
+
+    public bool HasLauncherUpdate => LauncherUpdateText is not null;
+
     private void CreateServices()
     {
         _library = new BuildLibrary(_settings.ResolvedLibraryPath);
         _client = new GitHubReleaseClient(Http, _settings.Owner, _settings.Repository, _settings.GitHubToken, LauncherPaths.Cache);
         _installer = new Installer(_library, _client, Http) { Log = message => StatusText = message };
+        // The launcher's own releases, which the Velopack packages update from (see .github/workflows/ci.yml).
+        _launcherUpdater = new UpdateManager(new GithubSource("https://github.com/Meowcat285/meow-godot-launcher", _settings.GitHubToken, false));
         OnPropertyChanged(nameof(RepositoryText));
     }
 
@@ -73,7 +85,42 @@ public partial class MainViewModel : ViewModelBase
     {
         _library.CleanStaging();
         await RefreshAsync();
+        await CheckLauncherUpdateAsync();
     }
+
+    private async Task CheckLauncherUpdateAsync()
+    {
+        // Builds that weren't installed from a Velopack package (from source, or run from the publish folder) don't update.
+        if (_launcherUpdater is not { IsInstalled: true } updater)
+            return;
+        try
+        {
+            _launcherUpdate = await updater.CheckForUpdatesAsync();
+            LauncherUpdateText = _launcherUpdate is { } update ? $"Meow Godot Launcher {update.TargetFullRelease.Version} is available." : null;
+        }
+        catch (Exception)
+        {
+            // Not worth bothering about, the next start checks again.
+        }
+    }
+
+    [RelayCommand]
+    private async Task UpdateLauncherAsync()
+    {
+        if (IsBusy || _launcherUpdater is not { } updater || _launcherUpdate is not { } update)
+            return;
+        await RunAsync($"Updating the launcher to {update.TargetFullRelease.Version}…", async token =>
+        {
+            // Reports whole percents, from a background thread.
+            var progress = new Progress<int>(percent => ReportProgress(new InstallProgress(
+                $"Downloading the launcher {update.TargetFullRelease.Version}… {percent}%", percent / 100.0)));
+            await updater.DownloadUpdatesAsync(update, ((IProgress<int>)progress).Report, token);
+            updater.ApplyUpdatesAndRestart(update.TargetFullRelease);
+        });
+    }
+
+    [RelayCommand]
+    private void OpenLauncherReleasePage() => Shell.Open("https://github.com/Meowcat285/meow-godot-launcher/releases/latest");
 
     partial void OnSelectedReleaseChanged(ReleaseItemViewModel? value)
     {
