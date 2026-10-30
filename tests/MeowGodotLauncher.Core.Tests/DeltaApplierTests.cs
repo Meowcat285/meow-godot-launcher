@@ -31,16 +31,16 @@ public sealed class DeltaApplierTests : IDisposable
         var descriptor = DeltaApplier.Apply(Fixture("editor-linux-x86_64.from-1.0.mgdelta"), old, target);
 
         Assert.Equal("1.1", descriptor.To);
-        Assert.Contains(descriptor.Operations, o => o.Op == DeltaOps.Patch);
+        Assert.Contains(descriptor.Operations, o => o.Op == DeltaOps.HPatch);
         Assert.Contains(descriptor.Operations, o => o.Op == DeltaOps.Add);
         Assert.Contains(descriptor.Operations, o => o.Op == DeltaOps.Copy && o.Source != o.Path);
         var archive = Assert.Single(descriptor.Operations, o => o.Path == "pkg/templates.zip" && o.Op == DeltaOps.Archive);
-        Assert.Contains(archive.Entries!, o => o.Op == DeltaOps.Patch);
+        Assert.Contains(archive.Entries!, o => o.Op == DeltaOps.HPatch);
         var apk = Assert.Single(descriptor.Operations, o => o.Path == "pkg/android.apk" && o.Op == DeltaOps.Archive);
-        Assert.Contains(apk.Entries!, o => o.Op == DeltaOps.Patch);
+        Assert.Contains(apk.Entries!, o => o.Op == DeltaOps.HPatch);
         var androidSource = Assert.Single(descriptor.Operations, o => o.Path == "pkg/android_source.zip" && o.Op == DeltaOps.Archive);
         var aar = Assert.Single(androidSource.Entries!, o => o.Path == "libs/lib.aar" && o.Op == DeltaOps.Archive);
-        Assert.Contains(aar.Entries!, o => o.Op == DeltaOps.Patch);
+        Assert.Contains(aar.Entries!, o => o.Op == DeltaOps.HPatch);
         Assert.Equal(Snapshot(expected), Snapshot(target));
         if (!OperatingSystem.IsWindows())
         {
@@ -50,12 +50,26 @@ public sealed class DeltaApplierTests : IDisposable
     }
 
     [Fact]
+    public void AppliesBsdiffDeltaOfOlderReleases()
+    {
+        var (old, expected) = ExtractFixtures();
+        string target = Path.Combine(_dir, "target");
+
+        var descriptor = DeltaApplier.Apply(Fixture("editor-linux-x86_64.from-1.0.bsdiff.mgdelta"), old, target);
+
+        Assert.Contains(descriptor.Operations, o => o.Op == DeltaOps.Patch);
+        Assert.Equal(Snapshot(expected), Snapshot(target));
+    }
+
+    [Fact]
     public void RejectsModifiedSource()
     {
         var (old, _) = ExtractFixtures();
         string exe = Path.Combine(old, "pkg", "bin", "godot.linuxbsd.editor.x86_64");
         var bytes = File.ReadAllBytes(exe);
-        bytes[1000] ^= 0xFF;
+        // Patches don't necessarily read every byte of the source.
+        for (int i = 0; i < bytes.Length; i++)
+            bytes[i] ^= 0xFF;
         File.WriteAllBytes(exe, bytes);
 
         var e = Assert.Throws<DeltaException>(() => DeltaApplier.Apply(Fixture("editor-linux-x86_64.from-1.0.mgdelta"), old, Path.Combine(_dir, "target")));

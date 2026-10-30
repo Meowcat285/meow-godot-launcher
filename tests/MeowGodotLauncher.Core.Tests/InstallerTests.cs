@@ -113,7 +113,9 @@ public sealed class InstallerTests : IDisposable
         var releases = await InstallOldAsync();
         string exe = Path.Combine(_library.Find("1.0")!.PackageDirectory(Package), "pkg", "bin", "godot.linuxbsd.editor.x86_64");
         var bytes = File.ReadAllBytes(exe);
-        bytes[1000] ^= 0xFF;
+        // Patches don't necessarily read every byte of the source.
+        for (int i = 0; i < bytes.Length; i++)
+            bytes[i] ^= 0xFF;
         File.WriteAllBytes(exe, bytes);
 
         var plan = await _installer.PlanAsync(releases[0], Package, releases, useDeltas: true);
