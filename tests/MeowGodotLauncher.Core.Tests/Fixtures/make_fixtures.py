@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # Regenerates the fixtures with the delta generator of the Godot fork:
 #   python3 make_fixtures.py <godot>/misc/scripts/generate_delta_patches.py . <scratch folder>
-# Requires the `bsdiff4` and `zstandard` packages.
+# Requires `hdiffz` (HDiffPatch) on the PATH and the `zstandard` package.
+# `editor-linux-x86_64.from-1.0.bsdiff.mgdelta` was made by an older generator, with bsdiff patches.
 
 import os
 import random

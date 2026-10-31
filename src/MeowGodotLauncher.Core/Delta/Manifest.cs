@@ -116,6 +116,8 @@ public static class DeltaOps
     public const string Copy = "copy";
     /// <summary>Decompress <see cref="DeltaOperation.Entry"/> using <see cref="DeltaOperation.Source"/> as reference (bsdiff in a zstd stream, see <see cref="BsPatch"/>).</summary>
     public const string Patch = "patch";
+    /// <summary>Apply the HDiffPatch patch in <see cref="DeltaOperation.Entry"/> to <see cref="DeltaOperation.Source"/> (see <see cref="HPatch"/>).</summary>
+    public const string HPatch = "hpatch";
     /// <summary>Decompress <see cref="DeltaOperation.Entry"/> as a regular zstd stream.</summary>
     public const string Add = "add";
     /// <summary>
@@ -146,14 +148,14 @@ public sealed class DeltaOperation
     [JsonPropertyName("mode")]
     public int Mode { get; set; } = 0x1A4;
 
-    /// <summary>Path of the source file, for <see cref="DeltaOps.Copy"/> and <see cref="DeltaOps.Patch"/>.</summary>
+    /// <summary>Path of the source file, for <see cref="DeltaOps.Copy"/>, <see cref="DeltaOps.Patch"/> and <see cref="DeltaOps.HPatch"/>.</summary>
     [JsonPropertyName("source")]
     public string? Source { get; set; }
 
     [JsonPropertyName("source_sha256")]
     public string? SourceSha256 { get; set; }
 
-    /// <summary>Name of the archive entry holding the data, for <see cref="DeltaOps.Patch"/> and <see cref="DeltaOps.Add"/>.</summary>
+    /// <summary>Name of the archive entry holding the data, for <see cref="DeltaOps.Patch"/>, <see cref="DeltaOps.HPatch"/> and <see cref="DeltaOps.Add"/>.</summary>
     [JsonPropertyName("entry")]
     public string? Entry { get; set; }
 
