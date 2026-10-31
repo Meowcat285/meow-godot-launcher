@@ -12,8 +12,8 @@ them up to date with **delta patches**, so updating a build downloads only what 
 
 - Browse releases of the fork, with their notes and commit, or the pre-releases built from any of its branches.
 - Install any number of builds side by side, launch them, open their folder, remove them.
-- Delta updates from any installed build, chaining several releases when needed, with automatic fallback to the
-  full download if anything doesn't check out.
+- Delta updates from a recent installed build (one of the last releases, or the previous build of a branch), with
+  automatic fallback to the full download if anything doesn't check out.
 - Export templates per build, picked per platform like in the editor's export template manager: only the
   templates of the chosen platforms are downloaded, and platforms can be added or removed later. The templates
   are copied into Godot's export templates folder when launching that build.
@@ -54,11 +54,11 @@ Settings.
 
 ## How updates work
 
-Each release of the fork comes with delta patches against the previous releases, published as extra release
-assets alongside a manifest listing every package's files and checksums. When updating, the launcher picks the
-cheapest way to get to the new release: a single delta, a chain of deltas through intermediate releases, or the
-full archive when that's smaller or no delta is available (for example for releases older than the delta
-patches).
+Each release of the fork comes with delta patches against the previous releases (and pre-releases against the
+latest release and the previous build of their branch), published as extra release assets alongside a manifest
+listing every package's files and checksums. When updating, the launcher picks the cheapest delta from a build it
+has installed, or the full archive when that's smaller or no such delta is available (for example for releases
+older than the delta patches).
 
 Patching happens in a staging folder. The result is verified file by file against SHA-256 checksums and only then
 moved into place, so a failed or cancelled update never breaks an installed build.

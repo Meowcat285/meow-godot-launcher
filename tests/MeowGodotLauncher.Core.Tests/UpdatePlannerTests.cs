@@ -20,60 +20,51 @@ public sealed class UpdatePlannerTests
         ],
     };
 
-    private static Dictionary<string, ReleaseManifest> Manifests(params ReleaseManifest[] manifests) => manifests.ToDictionary(m => m.Tag);
-
     [Fact]
     public void UsesFullDownloadWithoutInstalledBuilds()
     {
-        var plan = UpdatePlanner.Plan(Package, "3", 100, Manifests(Manifest("3", ("2", 5))), new HashSet<string>());
+        var plan = UpdatePlanner.Plan(Package, "3", 100, Manifest("3", ("2", 5)), new HashSet<string>());
         Assert.False(plan.UsesDeltas);
         Assert.Equal(100, plan.DownloadSize);
     }
 
     [Fact]
-    public void UsesDirectDelta()
+    public void UsesCheapestDeltaFromInstalledBuild()
     {
-        var plan = UpdatePlanner.Plan(Package, "3", 100, Manifests(Manifest("3", ("2", 5), ("1", 8))), new HashSet<string> { "1", "2" });
+        var plan = UpdatePlanner.Plan(Package, "3", 100, Manifest("3", ("2", 5), ("1", 8)), new HashSet<string> { "1", "2" });
         Assert.Equal("2", plan.BaseTag);
+        Assert.Equal("3", plan.Step!.To);
         Assert.Equal(5, plan.DownloadSize);
-        Assert.Single(plan.Steps);
     }
 
     [Fact]
-    public void ChainsDeltasAcrossReleases()
+    public void UsesPartialCost()
     {
-        var manifests = Manifests(Manifest("4", ("3", 5)), Manifest("3", ("2", 5)), Manifest("2", ("1", 5)));
-        var plan = UpdatePlanner.Plan(Package, "4", 100, manifests, new HashSet<string> { "1" });
-
+        var plan = UpdatePlanner.Plan(Package, "3", 100, Manifest("3", ("2", 5), ("1", 8)), new HashSet<string> { "1", "2" },
+            d => d.From == "1" ? 3 : d.Size);
         Assert.Equal("1", plan.BaseTag);
-        Assert.Equal(["1", "2", "3"], plan.Steps.Select(s => s.From));
-        Assert.Equal(["2", "3", "4"], plan.Steps.Select(s => s.To));
-        Assert.Equal(15, plan.DownloadSize);
+        Assert.Equal(3, plan.DownloadSize);
     }
 
     [Fact]
-    public void PrefersCheapestChain()
+    public void FallsBackWhenDeltaIsLargerThanFullDownload()
     {
-        // 1 -> 3 directly (30) is worse than 1 -> 2 -> 3 (10 + 10).
-        var manifests = Manifests(Manifest("3", ("2", 10), ("1", 30)), Manifest("2", ("1", 10)));
-        var plan = UpdatePlanner.Plan(Package, "3", 100, manifests, new HashSet<string> { "1" });
-        Assert.Equal(20, plan.DownloadSize);
-        Assert.Equal(2, plan.Steps.Count);
-    }
-
-    [Fact]
-    public void FallsBackWhenDeltasAreLargerThanFullDownload()
-    {
-        var manifests = Manifests(Manifest("3", ("2", 60)), Manifest("2", ("1", 60)));
-        var plan = UpdatePlanner.Plan(Package, "3", 100, manifests, new HashSet<string> { "1" });
+        var plan = UpdatePlanner.Plan(Package, "3", 100, Manifest("3", ("2", 100)), new HashSet<string> { "2" });
         Assert.False(plan.UsesDeltas);
     }
 
     [Fact]
-    public void FallsBackWhenChainIsBroken()
+    public void DoesNotChainDeltas()
     {
-        // Release 2 has no manifest, so there's no way from 1 to 3.
-        var plan = UpdatePlanner.Plan(Package, "3", 100, Manifests(Manifest("3", ("2", 5))), new HashSet<string> { "1" });
+        // Only 2 has a delta to 3, and 1 is installed: that needs a full download.
+        var plan = UpdatePlanner.Plan(Package, "3", 100, Manifest("3", ("2", 5)), new HashSet<string> { "1" });
+        Assert.False(plan.UsesDeltas);
+    }
+
+    [Fact]
+    public void FallsBackWithoutManifest()
+    {
+        var plan = UpdatePlanner.Plan(Package, "3", 100, null, new HashSet<string> { "2" });
         Assert.False(plan.UsesDeltas);
     }
 }

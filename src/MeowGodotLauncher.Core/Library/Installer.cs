@@ -18,9 +18,6 @@ public sealed class Installer(BuildLibrary library, GitHubReleaseClient client, 
     private readonly Dictionary<string, Task<RemoteZip>> _remoteZips = [];
     private readonly Dictionary<string, Task<DeltaDescriptor>> _descriptors = [];
 
-    /// <summary>How many releases older than the target to look at for delta chains.</summary>
-    public int MaxChainReleases { get; set; } = 30;
-
     /// <summary>Called with a message when a delta install fails and the full download is used instead.</summary>
     public Action<string>? Log { get; set; }
 
@@ -56,10 +53,8 @@ public sealed class Installer(BuildLibrary library, GitHubReleaseClient client, 
     }
 
     /// <summary>Works out the smallest download for a package of <paramref name="target"/>.</summary>
-    /// <param name="releases">All known releases, newest first.</param>
     /// <param name="components">For export templates, the components to install, or null for all of them.</param>
-    public async Task<InstallPlan?> PlanAsync(ReleaseInfo target, string packageId, IReadOnlyList<ReleaseInfo> releases,
-        bool useDeltas, IReadOnlyList<string>? components = null, CancellationToken cancellationToken = default)
+    public async Task<InstallPlan?> PlanAsync(ReleaseInfo target, string packageId, bool useDeltas, IReadOnlyList<string>? components = null, CancellationToken cancellationToken = default)
     {
         var asset = FindAsset(target, packageId);
         if (asset is null)
@@ -92,39 +87,37 @@ public sealed class Installer(BuildLibrary library, GitHubReleaseClient client, 
         if (installed.Count == 0)
             return InstallPlan.Full(packageId, target.Tag, fullSize, components);
 
-        // Only releases between the oldest installed build and the target can be part of a chain.
-        int targetIndex = releases.ToList().FindIndex(r => r.Tag == target.Tag);
-        var candidates = releases.Skip(Math.Max(0, targetIndex)).Take(MaxChainReleases + 1).ToList();
-        int lastInstalled = candidates.FindLastIndex(r => installed.Contains(r.Tag));
-        if (lastInstalled < 0)
-            return InstallPlan.Full(packageId, target.Tag, fullSize, components);
-
-        var manifests = new Dictionary<string, ReleaseManifest>();
-        var partialCosts = new Dictionary<(string, string), long>();
-        foreach (var release in candidates.Take(lastInstalled + 1))
+        // A missing manifest or delta only means fewer delta options.
+        ReleaseManifest? manifest = null;
+        try
         {
-            try
+            manifest = await client.GetManifestAsync(target, cancellationToken);
+        }
+        catch (Exception e) when (e is HttpRequestException or IOException or InvalidDataException or JsonException)
+        {
+        }
+        var partialCosts = new Dictionary<string, long>();
+        // With only some templates installed, only part of each delta is downloaded.
+        if (paths is not null)
+        {
+            foreach (var delta in manifest?.FindPackage(packageId)?.Deltas ?? [])
             {
-                var manifest = await client.GetManifestAsync(release, cancellationToken);
-                if (manifest is null)
+                if (!installed.Contains(delta.From))
                     continue;
-                manifests[release.Tag] = manifest;
-                if (paths is null)
-                    continue;
-                // With only some templates installed, only part of each delta is downloaded.
-                foreach (var delta in manifest.FindPackage(packageId)?.Deltas ?? [])
-                    partialCosts[(release.Tag, delta.Asset)] = await PartialDeltaCostAsync(release, delta, paths, cancellationToken);
-            }
-            catch (Exception e) when (e is HttpRequestException or IOException or InvalidDataException or DeltaException or JsonException)
-            {
-                // A missing manifest or delta only means fewer delta options.
+                try
+                {
+                    partialCosts[delta.Asset] = await PartialDeltaCostAsync(target, delta, paths, cancellationToken);
+                }
+                catch (Exception e) when (e is HttpRequestException or IOException or InvalidDataException or DeltaException or JsonException)
+                {
+                }
             }
         }
 
-        Func<string, DeltaEntry, long>? cost = paths is null
+        Func<DeltaEntry, long>? cost = paths is null
             ? null
-            : (tag, delta) => partialCosts.TryGetValue((tag, delta.Asset), out var c) ? c : long.MaxValue / 4;
-        return UpdatePlanner.Plan(packageId, target.Tag, fullSize, manifests, installed, cost, components);
+            : delta => partialCosts.TryGetValue(delta.Asset, out var c) ? c : long.MaxValue / 4;
+        return UpdatePlanner.Plan(packageId, target.Tag, fullSize, manifest, installed, cost, components);
     }
 
     private async Task<long> PartialDeltaCostAsync(ReleaseInfo release, DeltaEntry delta, HashSet<string> paths, CancellationToken cancellationToken)
@@ -159,14 +152,14 @@ public sealed class Installer(BuildLibrary library, GitHubReleaseClient client, 
         return DeltaApplier.ReadDescriptor(buffer);
     }
 
-    public async Task<InstalledBuild> InstallAsync(ReleaseInfo target, InstallPlan plan, IReadOnlyList<ReleaseInfo> releases,
+    public async Task<InstalledBuild> InstallAsync(ReleaseInfo target, InstallPlan plan,
         IProgress<InstallProgress>? progress = null, CancellationToken cancellationToken = default)
     {
         if (plan.UsesDeltas)
         {
             try
             {
-                return await InstallWithDeltasAsync(target, plan, releases, progress, cancellationToken);
+                return await InstallWithDeltasAsync(target, plan, progress, cancellationToken);
             }
             catch (Exception e) when (e is DeltaException or IOException or HttpRequestException or InvalidDataException)
             {
@@ -288,15 +281,15 @@ public sealed class Installer(BuildLibrary library, GitHubReleaseClient client, 
     /// Installs the templates if the build has none yet.
     /// </summary>
     public async Task<InstalledBuild> SetTemplateComponentsAsync(ReleaseInfo release, IReadOnlyList<string> components,
-        IReadOnlyList<ReleaseInfo> releases, bool useDeltas, IProgress<InstallProgress>? progress = null, CancellationToken cancellationToken = default)
+        bool useDeltas, IProgress<InstallProgress>? progress = null, CancellationToken cancellationToken = default)
     {
         const string packageId = PackageKinds.ExportTemplates;
         var build = library.Find(release.Tag);
         if (build is null || !build.Packages.TryGetValue(packageId, out var package))
         {
-            var plan = await PlanAsync(release, packageId, releases, useDeltas, components, cancellationToken)
+            var plan = await PlanAsync(release, packageId, useDeltas, components, cancellationToken)
                 ?? throw new InvalidOperationException($"Release {release.Tag} has no export templates.");
-            return await InstallAsync(release, plan, releases, progress, cancellationToken);
+            return await InstallAsync(release, plan, progress, cancellationToken);
         }
 
         string dir = build.PackageDirectory(packageId);
@@ -317,68 +310,44 @@ public sealed class Installer(BuildLibrary library, GitHubReleaseClient client, 
         return build;
     }
 
-    private async Task<InstalledBuild> InstallWithDeltasAsync(ReleaseInfo target, InstallPlan plan, IReadOnlyList<ReleaseInfo> releases,
+    private async Task<InstalledBuild> InstallWithDeltasAsync(ReleaseInfo target, InstallPlan plan,
         IProgress<InstallProgress>? progress, CancellationToken cancellationToken)
     {
-        var baseBuild = library.Find(plan.BaseTag!) ?? throw new DeltaException($"Build {plan.BaseTag} is no longer installed.");
-        string current = baseBuild.PackageDirectory(plan.PackageId);
-        string? previousStaging = null;
+        var step = plan.Step!;
+        var baseBuild = library.Find(step.From) ?? throw new DeltaException($"Build {step.From} is no longer installed.");
+        string source = baseBuild.PackageDirectory(plan.PackageId);
         var paths = plan.Components is null ? null : TemplateComponents.PathsFor(plan.Components);
-
+        string label = $"{step.From} → {step.To}";
+        string staging = library.CreateStagingDirectory();
+        var applyProgress = new Progress<double>(f => progress?.Report(new($"Patching {label}", f)));
         try
         {
-            for (int i = 0; i < plan.Steps.Count; i++)
+            if (paths is null)
             {
-                var step = plan.Steps[i];
-                string label = $"{step.From} → {step.To}{(plan.Steps.Count > 1 ? $" (step {i + 1} of {plan.Steps.Count})" : "")}";
-                var release = releases.FirstOrDefault(r => r.Tag == step.To) ?? throw new DeltaException($"Release {step.To} not found.");
-                string staging = library.CreateStagingDirectory();
-                string source = current;
-                var applyProgress = new Progress<double>(f => progress?.Report(new($"Patching {label}", f)));
+                string download = FileUtil.ResolveUnder(DownloadsDirectory, step.Delta.Asset);
                 try
                 {
-                    if (paths is null)
-                    {
-                        string download = FileUtil.ResolveUnder(DownloadsDirectory, step.Delta.Asset);
-                        try
-                        {
-                            await client.DownloadAsync(client.AssetUrl(release, step.Delta.Asset), download, step.Delta.Size, step.Delta.Sha256,
-                                new Progress<long>(n => progress?.Report(new($"Downloading update {label} ({FileUtil.FormatSize(n)} of {FileUtil.FormatSize(step.Delta.Size)})", (double)n / Math.Max(1, step.Delta.Size)))),
-                                cancellationToken);
-                            progress?.Report(new($"Patching {label}", 0));
-                            await Task.Run(() => DeltaApplier.Apply(download, source, staging, applyProgress, cancellationToken), cancellationToken);
-                        }
-                        finally
-                        {
-                            TryDelete(download);
-                        }
-                    }
-                    else
-                    {
-                        await ApplyPartialDeltaAsync(release, step, paths, source, staging, label, progress, applyProgress, cancellationToken);
-                    }
+                    await client.DownloadAsync(client.AssetUrl(target, step.Delta.Asset), download, step.Delta.Size, step.Delta.Sha256,
+                        new Progress<long>(n => progress?.Report(new($"Downloading update {label} ({FileUtil.FormatSize(n)} of {FileUtil.FormatSize(step.Delta.Size)})", (double)n / Math.Max(1, step.Delta.Size)))),
+                        cancellationToken);
+                    progress?.Report(new($"Patching {label}", 0));
+                    await Task.Run(() => DeltaApplier.Apply(download, source, staging, applyProgress, cancellationToken), cancellationToken);
                 }
-                catch
+                finally
                 {
-                    TryDeleteDirectory(staging);
-                    throw;
+                    TryDelete(download);
                 }
-
-                // Intermediate results are only needed for the next step.
-                if (previousStaging is not null)
-                    TryDeleteDirectory(previousStaging);
-                previousStaging = staging;
-                current = staging;
             }
-
-            var build = library.CommitPackage(target.Tag, target.TargetCommitish, target.PublishedAt, plan.PackageId, current, plan.BaseTag, plan.Components);
-            previousStaging = null;
-            return build;
+            else
+            {
+                await ApplyPartialDeltaAsync(target, step, paths, source, staging, label, progress, applyProgress, cancellationToken);
+            }
+            return library.CommitPackage(target.Tag, target.TargetCommitish, target.PublishedAt, plan.PackageId, staging, step.From, plan.Components);
         }
-        finally
+        catch
         {
-            if (previousStaging is not null)
-                TryDeleteDirectory(previousStaging);
+            TryDeleteDirectory(staging);
+            throw;
         }
     }
 

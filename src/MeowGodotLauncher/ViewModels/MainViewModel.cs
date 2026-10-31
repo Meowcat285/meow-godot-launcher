@@ -253,7 +253,7 @@ public partial class MainViewModel : ViewModelBase
             var lines = new List<string>();
             foreach (var (package, components) in packages)
             {
-                var plan = await _installer.PlanAsync(item.Release, package, _releases, _settings.UseDeltaUpdates, components, cts.Token);
+                var plan = await _installer.PlanAsync(item.Release, package, _settings.UseDeltaUpdates, components, cts.Token);
                 if (plan is not null)
                     lines.Add(DescribePlan(plan));
             }
@@ -275,9 +275,8 @@ public partial class MainViewModel : ViewModelBase
             : plan.Components is null ? "Export templates" : $"Export templates for {DescribeComponents(plan.Components)}";
         if (!plan.UsesDeltas)
             return $"{what}: {FileUtil.FormatSize(plan.FullSize)} download.";
-        string chain = plan.Steps.Count == 1 ? $"from {plan.BaseTag}" : $"from {plan.BaseTag} in {plan.Steps.Count} steps";
         int saved = (int)Math.Round(100.0 * (1 - (double)plan.DownloadSize / Math.Max(1, plan.FullSize)));
-        return $"{what}: {FileUtil.FormatSize(plan.DownloadSize)} delta update {chain} (full download is {FileUtil.FormatSize(plan.FullSize)}, {saved}% saved).";
+        return $"{what}: {FileUtil.FormatSize(plan.DownloadSize)} delta update from {plan.BaseTag} (full download is {FileUtil.FormatSize(plan.FullSize)}, {saved}% saved).";
     }
 
     private static string DescribeComponents(IEnumerable<string> ids) =>
@@ -319,10 +318,10 @@ public partial class MainViewModel : ViewModelBase
             var replaced = new HashSet<(string Tag, string Package)>();
             foreach (var (package, components) in packages)
             {
-                var plan = await _installer.PlanAsync(item.Release, package, _releases, _settings.UseDeltaUpdates, components, token)
+                var plan = await _installer.PlanAsync(item.Release, package, _settings.UseDeltaUpdates, components, token)
                     ?? throw new InvalidOperationException($"Release {item.Tag} has no {package} asset.");
                 var progress = new Progress<InstallProgress>(ReportProgress);
-                await _installer.InstallAsync(item.Release, plan, _releases, progress, token);
+                await _installer.InstallAsync(item.Release, plan, progress, token);
                 if (plan.BaseTag is not null)
                     replaced.Add((plan.BaseTag, package));
             }
@@ -481,7 +480,7 @@ public partial class MainViewModel : ViewModelBase
             }
             else
             {
-                build = await _installer.SetTemplateComponentsAsync(item.Release, components, _releases, _settings.UseDeltaUpdates,
+                build = await _installer.SetTemplateComponentsAsync(item.Release, components, _settings.UseDeltaUpdates,
                     new Progress<InstallProgress>(ReportProgress), token);
                 // Keep Godot's copy in step with the build.
                 if (synced)

@@ -79,10 +79,10 @@ public sealed class InstallerTests : IDisposable
     private async Task<IReadOnlyList<ReleaseInfo>> InstallOldAsync()
     {
         var releases = (await _client.GetReleasesAsync(50)).Releases;
-        var plan = await _installer.PlanAsync(releases[1], Package, releases, useDeltas: true);
+        var plan = await _installer.PlanAsync(releases[1], Package, useDeltas: true);
         Assert.NotNull(plan);
         Assert.False(plan.UsesDeltas);
-        await _installer.InstallAsync(releases[1], plan, releases);
+        await _installer.InstallAsync(releases[1], plan);
         return releases;
     }
 
@@ -92,12 +92,12 @@ public sealed class InstallerTests : IDisposable
         var releases = await InstallOldAsync();
         Assert.Equal(["1.1", "1.0"], releases.Select(r => r.Tag));
 
-        var plan = await _installer.PlanAsync(releases[0], Package, releases, useDeltas: true);
+        var plan = await _installer.PlanAsync(releases[0], Package, useDeltas: true);
         Assert.NotNull(plan);
         Assert.Equal("1.0", plan.BaseTag);
         Assert.True(plan.DownloadSize < plan.FullSize);
 
-        var build = await _installer.InstallAsync(releases[0], plan, releases);
+        var build = await _installer.InstallAsync(releases[0], plan);
 
         Assert.Equal("1.0", build.Packages[Package].PatchedFrom);
         Assert.Equal(ExpectedNew(), Snapshot(build.PackageDirectory(Package)));
@@ -118,8 +118,8 @@ public sealed class InstallerTests : IDisposable
             bytes[i] ^= 0xFF;
         File.WriteAllBytes(exe, bytes);
 
-        var plan = await _installer.PlanAsync(releases[0], Package, releases, useDeltas: true);
-        var build = await _installer.InstallAsync(releases[0], plan!, releases);
+        var plan = await _installer.PlanAsync(releases[0], Package, useDeltas: true);
+        var build = await _installer.InstallAsync(releases[0], plan!);
 
         Assert.Null(build.Packages[Package].PatchedFrom);
         Assert.Equal(ExpectedNew(), Snapshot(build.PackageDirectory(Package)));

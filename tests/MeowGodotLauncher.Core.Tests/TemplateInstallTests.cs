@@ -96,11 +96,11 @@ public sealed class TemplateInstallTests : IDisposable
 
     private async Task<IReadOnlyList<ReleaseInfo>> ReleasesAsync() => (await _client.GetReleasesAsync(50)).Releases;
 
-    private async Task<InstalledBuild> InstallAsync(ReleaseInfo release, IReadOnlyList<ReleaseInfo> releases, params string[] components)
+    private async Task<InstalledBuild> InstallAsync(ReleaseInfo release, params string[] components)
     {
-        var plan = await _installer.PlanAsync(release, Package, releases, useDeltas: true, components);
+        var plan = await _installer.PlanAsync(release, Package, useDeltas: true, components);
         Assert.NotNull(plan);
-        return await _installer.InstallAsync(release, plan, releases);
+        return await _installer.InstallAsync(release, plan);
     }
 
     [Fact]
@@ -118,12 +118,12 @@ public sealed class TemplateInstallTests : IDisposable
     public async Task DownloadsOnlySelectedPlatforms()
     {
         var releases = await ReleasesAsync();
-        var plan = await _installer.PlanAsync(releases[0], Package, releases, useDeltas: true, [Linux]);
+        var plan = await _installer.PlanAsync(releases[0], Package, useDeltas: true, [Linux]);
         Assert.NotNull(plan);
         Assert.False(plan.UsesDeltas);
         Assert.True(plan.FullSize < _github.Files["https://dl/1.1/full"].Length / 2);
 
-        var build = await _installer.InstallAsync(releases[0], plan, releases);
+        var build = await _installer.InstallAsync(releases[0], plan);
 
         Assert.Equal([Linux], build.Packages[Package].Components);
         Assert.Equal(Expected("templates-new.zip", Linux), Snapshot(build.PackageDirectory(Package)));
@@ -138,7 +138,7 @@ public sealed class TemplateInstallTests : IDisposable
         _github.SupportsRanges = false;
         var releases = await ReleasesAsync();
 
-        var build = await InstallAsync(releases[0], releases, Linux);
+        var build = await InstallAsync(releases[0], Linux);
 
         Assert.Equal([Linux], build.Packages[Package].Components);
         Assert.Equal(Expected("templates-new.zip", Linux), Snapshot(build.PackageDirectory(Package)));
@@ -148,15 +148,15 @@ public sealed class TemplateInstallTests : IDisposable
     public async Task UpdatesSelectedPlatformsWithPartOfTheDelta()
     {
         var releases = await ReleasesAsync();
-        await InstallAsync(releases[1], releases, Linux);
+        await InstallAsync(releases[1], Linux);
 
-        var plan = await _installer.PlanAsync(releases[0], Package, releases, useDeltas: true, [Linux]);
+        var plan = await _installer.PlanAsync(releases[0], Package, useDeltas: true, [Linux]);
         Assert.NotNull(plan);
         Assert.Equal("1.0", plan.BaseTag);
         // The Windows templates added by the delta aren't downloaded.
-        Assert.True(plan.DownloadSize < plan.Steps[0].Delta.Size / 2);
+        Assert.True(plan.DownloadSize < plan.Step!.Delta.Size / 2);
 
-        var build = await _installer.InstallAsync(releases[0], plan, releases);
+        var build = await _installer.InstallAsync(releases[0], plan);
 
         Assert.Empty(_log);
         Assert.Equal("1.0", build.Packages[Package].PatchedFrom);
@@ -171,10 +171,10 @@ public sealed class TemplateInstallTests : IDisposable
     public async Task UpdatesPartOfAFullInstallWithTheDelta()
     {
         var releases = await ReleasesAsync();
-        var plan = await _installer.PlanAsync(releases[1], Package, releases, useDeltas: true);
-        await _installer.InstallAsync(releases[1], plan!, releases);
+        var plan = await _installer.PlanAsync(releases[1], Package, useDeltas: true);
+        await _installer.InstallAsync(releases[1], plan!);
 
-        var build = await InstallAsync(releases[0], releases, "web");
+        var build = await InstallAsync(releases[0], "web");
 
         Assert.Equal("1.0", build.Packages[Package].PatchedFrom);
         Assert.Equal(Expected("templates-new.zip", "web"), Snapshot(build.PackageDirectory(Package)));
@@ -184,9 +184,9 @@ public sealed class TemplateInstallTests : IDisposable
     public async Task DoesNotPatchFromBuildsMissingPlatforms()
     {
         var releases = await ReleasesAsync();
-        await InstallAsync(releases[1], releases, Linux);
+        await InstallAsync(releases[1], Linux);
 
-        var plan = await _installer.PlanAsync(releases[0], Package, releases, useDeltas: true, [Linux, "web"]);
+        var plan = await _installer.PlanAsync(releases[0], Package, useDeltas: true, [Linux, "web"]);
 
         Assert.NotNull(plan);
         Assert.False(plan.UsesDeltas);
@@ -196,9 +196,9 @@ public sealed class TemplateInstallTests : IDisposable
     public async Task AddsAndRemovesPlatforms()
     {
         var releases = await ReleasesAsync();
-        await InstallAsync(releases[0], releases, Linux);
+        await InstallAsync(releases[0], Linux);
 
-        var build = await _installer.SetTemplateComponentsAsync(releases[0], [Windows, "web"], releases, useDeltas: true);
+        var build = await _installer.SetTemplateComponentsAsync(releases[0], [Windows, "web"], useDeltas: true);
 
         Assert.Equal(["web", Windows], build.Packages[Package].Components);
         Assert.Equal(Expected("templates-new.zip", Windows, "web"), Snapshot(build.PackageDirectory(Package)));
@@ -210,10 +210,10 @@ public sealed class TemplateInstallTests : IDisposable
     {
         var paths = TemplateComponents.PathsFor([Linux]);
         var releases = await ReleasesAsync();
-        var plan = await _installer.PlanAsync(releases[0], Package, releases, useDeltas: false, [Linux]);
+        var plan = await _installer.PlanAsync(releases[0], Package, useDeltas: false, [Linux]);
         _github.SupportsRanges = false;
 
-        var build = await _installer.InstallAsync(releases[0], plan!, releases);
+        var build = await _installer.InstallAsync(releases[0], plan!);
 
         Assert.Equal(paths.Order(), Snapshot(build.PackageDirectory(Package)).Keys.Order());
     }
@@ -224,9 +224,9 @@ public sealed class TemplateInstallTests : IDisposable
         _manifest.Packages[0].Files.First(f => f.Path == "templates/linux_debug.x86_64").Sha256 = new string('0', 64);
         _github.Files["https://dl/1.1/manifest"] = JsonSerializer.SerializeToUtf8Bytes(_manifest, LauncherJsonContext.Default.ReleaseManifest);
         var releases = await ReleasesAsync();
-        var plan = await _installer.PlanAsync(releases[0], Package, releases, useDeltas: false, [Linux]);
+        var plan = await _installer.PlanAsync(releases[0], Package, useDeltas: false, [Linux]);
 
-        await Assert.ThrowsAsync<InvalidDataException>(() => _installer.InstallAsync(releases[0], plan!, releases));
+        await Assert.ThrowsAsync<InvalidDataException>(() => _installer.InstallAsync(releases[0], plan!));
         Assert.Null(_library.Find("1.1"));
     }
 
