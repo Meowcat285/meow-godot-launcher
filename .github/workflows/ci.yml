@@ -39,7 +39,7 @@ jobs:
   # as Velopack refuses to pack a version that isn't newer than the latest release.
   version:
     name: Version
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-slim
     timeout-minutes: 5
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -161,7 +161,7 @@ jobs:
     name: Release approval
     needs: [version, publish]
     if: needs.version.outputs.release == 'true'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-slim
     timeout-minutes: 5
     environment: release
     permissions: {}
@@ -296,7 +296,7 @@ jobs:
     name: Release
     needs: [version, sign-macos]
     if: needs.version.outputs.release == 'true'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-slim
     permissions:
       contents: write
     steps:
