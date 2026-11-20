@@ -24,7 +24,7 @@ public static class TemplateComponents
         Linux("linux-x86_32", "Linux x86_32", "x86_32", "32-bit build for Linux systems."),
         Linux("linux-arm64", "Linux arm64", "arm64", "64-bit build for Linux systems on ARM."),
         Linux("linux-arm32", "Linux arm32", "arm32", "32-bit build for Linux systems on ARM."),
-        new("macos", "macOS", "Desktop", "Universal build for macOS.", ["macos.zip"]),
+        new("macos", "macOS", "Desktop", "Build for macOS.", ["macos.zip"]),
         new("android", "Android", "Mobile", "Android APK templates and source for Gradle builds.", ["android_debug.apk", "android_release.apk", "android_source.zip"]),
         new("ios", "iOS", "Mobile", "Build for Apple's iOS.", ["ios.zip"]),
         new("visionos", "visionOS", "Mobile", "Build for Apple's visionOS.", ["visionos.zip"]),

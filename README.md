@@ -29,7 +29,6 @@ needed.
 | --- | --- |
 | Windows (x64, also runs on Arm64) | `MeowGodotLauncher-win-x64-Setup.exe` (installer), or `MeowGodotLauncher-win-x64-Portable.zip` |
 | macOS (Apple Silicon) | `MeowGodotLauncher-osx-arm64-Portable.zip` |
-| macOS (Intel) | `MeowGodotLauncher-osx-x64-Portable.zip` |
 | Linux (x64) | `MeowGodotLauncher-linux-x64.AppImage` |
 
 The Windows installer needs no administrator rights and adds the launcher to the Start menu. On macOS, unzip the app
@@ -81,7 +80,7 @@ tools on Windows, Xcode on macOS, clang on Linux; see
 [the prerequisites](https://learn.microsoft.com/dotnet/core/deploying/native-aot/#prerequisites)):
 
 ```sh
-dotnet publish src/MeowGodotLauncher -c Release -r linux-x64 -o publish   # or win-x64, osx-arm64, osx-x64
+dotnet publish src/MeowGodotLauncher -c Release -r linux-x64 -o publish   # or win-x64, osx-arm64
 ```
 
 ### Layout

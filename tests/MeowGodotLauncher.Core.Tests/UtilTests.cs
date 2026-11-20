@@ -48,6 +48,7 @@ public sealed class UtilTests
     [InlineData("editor-linux-x86_64", "Godot_v4.8.beta.mono_linux_x86_64.zip", true)]
     [InlineData("editor-windows-x86_64", "Godot_v4.8.beta.mono_win64.zip", true)]
     [InlineData("editor-macos-universal", "Godot_v4.8.beta.mono_macos.universal.zip", true)]
+    [InlineData("editor-macos-universal", "Godot_v4.8.beta.mono_macos.arm64.zip", true)]
     [InlineData("export-templates", "Godot_v4.8.beta.mono_export_templates.tpz", true)]
     [InlineData("editor-linux-x86_64", "Godot_v4.8.beta.mono_win64.zip", false)]
     public void MatchesReleaseAssets(string package, string asset, bool matches) =>

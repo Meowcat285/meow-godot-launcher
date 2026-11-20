@@ -14,19 +14,21 @@ public static class PackageKinds
     public const string ExportTemplates = "export-templates";
 
     // Release asset names look like `Godot_v4.8.beta.mono_linux_x86_64.zip`, so match on the suffix
-    // to keep working when the version changes.
-    private static readonly Dictionary<string, string> AssetSuffixes = new()
+    // to keep working when the version changes. Newer releases have arm64-only macOS builds, older ones
+    // universal ones, which the package id is still named after.
+    private static readonly Dictionary<string, string[]> AssetSuffixes = new()
     {
-        [EditorLinuxX64] = "_linux_x86_64.zip",
-        [EditorWindowsX64] = "_win64.zip",
-        [EditorMacOSUniversal] = "_macos.universal.zip",
-        [ExportTemplates] = "_export_templates.tpz",
+        [EditorLinuxX64] = ["_linux_x86_64.zip"],
+        [EditorWindowsX64] = ["_win64.zip"],
+        [EditorMacOSUniversal] = ["_macos.arm64.zip", "_macos.universal.zip"],
+        [ExportTemplates] = ["_export_templates.tpz"],
     };
 
     public static IReadOnlyCollection<string> All => AssetSuffixes.Keys;
 
     public static bool MatchesAsset(string packageId, string assetName) =>
-        AssetSuffixes.TryGetValue(packageId, out var suffix) && assetName.EndsWith(suffix, StringComparison.Ordinal);
+        AssetSuffixes.TryGetValue(packageId, out var suffixes) &&
+        suffixes.Any(suffix => assetName.EndsWith(suffix, StringComparison.Ordinal));
 
     /// <summary>The editor package for the machine the launcher runs on, or null if there is none.</summary>
     public static string? HostEditor
